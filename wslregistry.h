@@ -76,7 +76,7 @@ public:
     void setDefaultUsername(const std::wstring &name);
 
     WslDistribution findDistByName(const std::wstring &name) const;
-    WslDistribution findDistByUuid(const std::wstring &uuid) const;
+    static WslDistribution findDistByUuid(const std::wstring &uuid);
 
 private:
     HKEY m_lxssKey;

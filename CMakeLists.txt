@@ -22,12 +22,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt5Core REQUIRED)
 find_package(Qt5Widgets REQUIRED)
+set(CMAKE_AUTORCC ON)
 
-add_executable(wslman wslman.cpp)
+add_executable(wslman WIN32 wslman.cpp)
 target_sources(wslman PRIVATE
     wslregistry.h
     wslregistry.cpp
     wslwrap.h
     wslwrap.cpp
+    wslui.h
+    wslui.cpp
+    wslman.qrc
 )
 target_link_libraries(wslman PRIVATE Qt5::Core Qt5::Widgets)

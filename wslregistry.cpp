@@ -203,7 +203,7 @@ WslDistribution WslRegistry::findDistByName(const std::wstring &name) const
     return WslDistribution();
 }
 
-WslDistribution WslRegistry::findDistByUuid(const std::wstring &uuid) const
+WslDistribution WslRegistry::findDistByUuid(const std::wstring &uuid)
 {
     return WslDistribution::loadFromRegistry(LXSS_ROOT_PATH L"\\" + uuid);
 }

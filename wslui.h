@@ -14,17 +14,29 @@
  * along with wslman.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "wslui.h"
+#include <QMainWindow>
 
-#include <QApplication>
-#include <QListWidget>
+class WslRegistry;
+class QListWidget;
+class QListWidgetItem;
+class QTreeWidget;
+class QAction;
 
-int main(int argc, char *argv[])
+class WslUi : public QMainWindow
 {
-    QApplication app(argc, argv);
+public:
+    WslUi();
+    ~WslUi();
 
-    WslUi ui;
-    ui.show();
+private slots:
+    void distSelected(QListWidgetItem *current, QListWidgetItem *);
+    void distActivated(QListWidgetItem *item);
 
-    return app.exec();
-}
+private:
+    WslRegistry *m_registry;
+    QListWidget *m_distList;
+
+    QAction *m_openShell;
+
+    QListWidgetItem *findDistByUuid(const QString &uuid);
+};
