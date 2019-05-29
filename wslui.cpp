@@ -23,12 +23,27 @@
 #include <QMessageBox>
 #include <process.h>
 
-enum { DistUuidRole = Qt::UserRole };
+enum { DistUuidRole = Qt::UserRole, DistNameRole };
+
+static QIcon pickDistIcon(const QString &name)
+{
+    if (name.contains(QLatin1String("Alpine"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-alpine.png");
+    else if (name.contains(QLatin1String("Debian"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-debian.png");
+    else if (name.contains(QLatin1String("Ubuntu"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-ubuntu.png");
+    return QIcon(":/icons/terminal.png");
+}
 
 WslUi::WslUi()
     : m_registry()
 {
+    setWindowTitle(tr("WSL Distribution Manager"));
+    setWindowIcon(QIcon(":/icons/terminal.png"));
+
     m_distList = new QListWidget(this);
+    m_distList->setIconSize(QSize(32, 32));
 
     auto split = new QSplitter(this);
     split->addWidget(m_distList);
@@ -54,8 +69,11 @@ WslUi::WslUi()
     try {
         m_registry = new WslRegistry;
         for (const auto &dist : m_registry->getDistributions()) {
-            auto item = new QListWidgetItem(QString::fromStdWString(dist.name()), m_distList);
+            auto distName = QString::fromStdWString(dist.name());
+            auto item = new QListWidgetItem(distName, m_distList);
             item->setData(DistUuidRole, QString::fromStdWString(dist.uuidString()));
+            item->setData(DistNameRole, distName);
+            item->setIcon(pickDistIcon(distName));
         }
         m_distList->sortItems();
     } catch (const std::runtime_error &err) {
@@ -66,8 +84,11 @@ WslUi::WslUi()
     try {
         auto defaultDist = m_registry->defaultDistribution();
         if (defaultDist.isValid()) {
-            auto distUuid = QString::fromStdWString(defaultDist.name());
-            m_distList->setCurrentItem(findDistByUuid(distUuid));
+            auto distUuid = QString::fromStdWString(defaultDist.uuidString());
+            QListWidgetItem *defaultItem = findDistByUuid(distUuid);
+            if (defaultItem)
+                defaultItem->setText(tr("%1 (Default)").arg(defaultItem->text()));
+            m_distList->setCurrentItem(defaultItem);
         } else if (m_distList->count() != 0) {
             m_distList->setCurrentItem(m_distList->item(0));
         }
@@ -90,16 +111,17 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
     }
     m_openShell->setEnabled(true);
 
-    auto uuid = current->data(DistUuidRole).toString().toStdWString();
+    auto uuid = current->data(DistUuidRole).toString();
+    auto distName = current->data(DistNameRole).toString();
     try {
-        WslDistribution dist = WslRegistry::findDistByUuid(uuid);
+        WslDistribution dist = WslRegistry::findDistByUuid(uuid.toStdWString());
         if (dist.isValid()) {
             // TODO
         }
     } catch (const std::runtime_error &err) {
         QMessageBox::critical(this, QString::null,
                 tr("Failed to query distribution %1: %2")
-                .arg(current->text()).arg(err.what()));
+                .arg(distName).arg(err.what()));
     }
 }
 
@@ -118,9 +140,10 @@ void WslUi::distActivated(QListWidgetItem *item)
     if (!item)
         return;
 
-    auto uuid = item->data(DistUuidRole).toString().toStdWString();
+    auto uuid = item->data(DistUuidRole).toString();
+    auto distName = item->data(DistNameRole).toString();
     try {
-        WslDistribution dist = WslRegistry::findDistByUuid(uuid);
+        WslDistribution dist = WslRegistry::findDistByUuid(uuid.toStdWString());
         if (dist.isValid()) {
             auto heapName = new std::wstring(dist.name());
             unsigned threadId;
@@ -132,7 +155,7 @@ void WslUi::distActivated(QListWidgetItem *item)
     } catch (const std::runtime_error &err) {
         QMessageBox::critical(this, QString::null,
                 tr("Failed to start distribution %1: %2")
-                .arg(item->text()).arg(err.what()));
+                .arg(distName).arg(err.what()));
     }
 }
 
