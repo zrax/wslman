@@ -67,13 +67,6 @@ public:
 
     std::vector<WslDistribution> getDistributions() const;
     WslDistribution defaultDistribution() const;
-    uint32_t defaultUID() const;
-    uint32_t defaultGID() const;
-    std::wstring defaultUsername() const;
-
-    void setDefaultUID(uint32_t uid);
-    void setDefaultGID(uint32_t gid);
-    void setDefaultUsername(const std::wstring &name);
 
     WslDistribution findDistByName(const std::wstring &name) const;
     static WslDistribution findDistByUuid(const std::wstring &uuid);

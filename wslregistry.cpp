@@ -165,21 +165,6 @@ WslDistribution WslRegistry::defaultDistribution() const
     return findDistByUuid(uuid);
 }
 
-uint32_t WslRegistry::defaultUID() const
-{
-    return static_cast<uint32_t>(winregGetDword(LXSS_ROOT_PATH, L"DefaultUid"));
-}
-
-uint32_t WslRegistry::defaultGID() const
-{
-    return static_cast<uint32_t>(winregGetDword(LXSS_ROOT_PATH, L"DefaultGid"));
-}
-
-std::wstring WslRegistry::defaultUsername() const
-{
-    return winregGetWstring(LXSS_ROOT_PATH, L"DefaultUsername");
-}
-
 WslDistribution WslRegistry::findDistByName(const std::wstring &name) const
 {
     wchar_t buffer[MAX_PATH];

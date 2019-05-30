@@ -125,13 +125,18 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
     }
 }
 
-static unsigned _startShell(void *context)
+struct _startShell_Context
 {
-    std::wstring *distName = reinterpret_cast<std::wstring *>(context);
+    std::wstring distName;
+};
+
+static unsigned _startShell(void *pvContext)
+{
+    auto context = reinterpret_cast<_startShell_Context *>(pvContext);
 
     DWORD exitCode;
-    WslApi::LaunchInteractive(distName->c_str(), L"", FALSE, &exitCode);
-    delete distName;
+    WslApi::LaunchInteractive(context->distName.c_str(), L"", FALSE, &exitCode);
+    delete context;
     return exitCode;
 }
 
@@ -145,10 +150,11 @@ void WslUi::distActivated(QListWidgetItem *item)
     try {
         WslDistribution dist = WslRegistry::findDistByUuid(uuid.toStdWString());
         if (dist.isValid()) {
-            auto heapName = new std::wstring(dist.name());
+            auto context = new _startShell_Context;
+            context->distName = dist.name();
             unsigned threadId;
             HANDLE th = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0,
-                                &_startShell, reinterpret_cast<void *>(heapName),
+                                &_startShell, reinterpret_cast<void *>(context),
                                 0, &threadId));
             CloseHandle(th);
         }
