@@ -36,3 +36,16 @@ target_sources(wslman PRIVATE
     wslman.rc
 )
 target_link_libraries(wslman PRIVATE Qt5::Core Qt5::Widgets)
+
+# Find windeployqt, which should be in the same path as Qt5::qmake
+get_target_property(_qmake_executable Qt5::qmake IMPORTED_LOCATION)
+get_filename_component(_qt5_bin_dir "${_qmake_executable}" DIRECTORY)
+find_program(Qt5_WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${_qt5_bin_dir}")
+if(NOT Qt5_WINDEPLOYQT_EXECUTABLE)
+    message(FATAL_ERROR "windeployqt.exe is required for installation")
+endif()
+
+install(TARGETS wslman RUNTIME DESTINATION .)
+install(CODE "execute_process(COMMAND \"${Qt5_WINDEPLOYQT_EXECUTABLE}\"\
+    --no-angle --no-opengl-sw \"${CMAKE_INSTALL_PREFIX}\"\
+)")
