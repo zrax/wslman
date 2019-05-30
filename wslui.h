@@ -20,6 +20,9 @@ class WslRegistry;
 class QListWidget;
 class QListWidgetItem;
 class QTreeWidget;
+class QLabel;
+class QLineEdit;
+class QCheckBox;
 class QAction;
 
 class WslUi : public QMainWindow
@@ -35,6 +38,15 @@ private slots:
 private:
     WslRegistry *m_registry;
     QListWidget *m_distList;
+    QLabel *m_name;
+    QLabel *m_version;
+    QLabel *m_defaultUser;
+    QLineEdit *m_location;
+    QCheckBox *m_enableInterop;
+    QCheckBox *m_appendNTPath;
+    QCheckBox *m_enableDriveMounting;
+    QLineEdit *m_kernelCmdLine;
+    QTreeWidget *m_defaultEnvironment;
 
     QAction *m_openShell;
 

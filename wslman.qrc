@@ -1,7 +1,7 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource>
-        <file>icons/terminal.png</file>
+        <file>icons/terminal.ico</file>
         <file>icons/dist-alpine.png</file>
         <file>icons/dist-arch.png</file>
         <file>icons/dist-debian.png</file>

@@ -22,6 +22,7 @@
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    app.setWindowIcon(QIcon(":/icons/terminal.ico"));
 
     WslUi ui;
     ui.show();

@@ -33,5 +33,6 @@ target_sources(wslman PRIVATE
     wslui.h
     wslui.cpp
     wslman.qrc
+    wslman.rc
 )
 target_link_libraries(wslman PRIVATE Qt5::Core Qt5::Widgets)

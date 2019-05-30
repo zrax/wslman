@@ -18,8 +18,14 @@
 
 #include "wslregistry.h"
 #include <QListWidget>
-#include <QSplitter>
 #include <QToolBar>
+#include <QLabel>
+#include <QLineEdit>
+#include <QCheckBox>
+#include <QTreeWidget>
+#include <QFrame>
+#include <QSplitter>
+#include <QGridLayout>
 #include <QMessageBox>
 #include <process.h>
 
@@ -45,24 +51,82 @@ static QIcon pickDistIcon(const QString &name)
         return QIcon(":/icons/dist-suse.png");
     else if (name.contains(QLatin1String("Ubuntu"), Qt::CaseInsensitive))
         return QIcon(":/icons/dist-ubuntu.png");
-    return QIcon(":/icons/terminal.png");
+    return QIcon(":/icons/terminal.ico");
 }
 
 WslUi::WslUi()
     : m_registry()
 {
     setWindowTitle(tr("WSL Distribution Manager"));
-    setWindowIcon(QIcon(":/icons/terminal.png"));
 
     m_distList = new QListWidget(this);
     m_distList->setIconSize(QSize(32, 32));
 
+    auto distDetails = new QFrame(this);
+    distDetails->setFrameStyle(QFrame::StyledPanel);
+    distDetails->setBackgroundRole(QPalette::Base);
+    distDetails->setAutoFillBackground(true);
+    auto distLayout = new QGridLayout(distDetails);
+    distLayout->setContentsMargins(5, 5, 5, 5);
+
+    auto lblName = new QLabel(tr("Name:"), this);
+    m_name = new QLabel(this);
+    distLayout->addWidget(lblName, 0, 0);
+    distLayout->addWidget(m_name, 0, 1);
+
+    auto lblVersion = new QLabel(tr("Version:"), this);
+    m_version = new QLabel(this);
+    distLayout->addWidget(lblVersion, 1, 0);
+    distLayout->addWidget(m_version, 1, 1);
+
+    auto lblDefaultUser = new QLabel(tr("Default User:"), this);
+    m_defaultUser = new QLabel(this);
+    distLayout->addWidget(lblDefaultUser, 2, 0);
+    distLayout->addWidget(m_defaultUser, 2, 1);
+
+    distLayout->addItem(new QSpacerItem(0, 10), 3, 0, 1, 2);
+    auto lblLocation = new QLabel(tr("&Location:"), this);
+    m_location = new QLineEdit(this);
+    m_location->setReadOnly(true);
+    lblLocation->setBuddy(m_location);
+    distLayout->addWidget(lblLocation, 4, 0);
+    distLayout->addWidget(m_location, 4, 1);
+
+    auto lblFeatures = new QLabel(tr("&Features:"), this);
+    m_enableInterop = new QCheckBox(tr("Allow executing Windows applications"), this);
+    m_appendNTPath = new QCheckBox(tr("Add Windows PATH to environment"));
+    m_enableDriveMounting = new QCheckBox(tr("Auto-mount Windows drives"));
+    lblFeatures->setBuddy(m_enableInterop);
+    distLayout->addWidget(lblFeatures, 5, 0);
+    distLayout->addWidget(m_enableInterop, 5, 1);
+    distLayout->addWidget(m_appendNTPath, 6, 1);
+    distLayout->addWidget(m_enableDriveMounting, 7, 1);
+
+    distLayout->addItem(new QSpacerItem(0, 10), 8, 0, 1, 2);
+    auto lblKernelCmdLine = new QLabel(tr("&Kernel Command Line:"), this);
+    m_kernelCmdLine = new QLineEdit(this);
+    lblKernelCmdLine->setBuddy(m_kernelCmdLine);
+    distLayout->addWidget(lblKernelCmdLine, 9, 0);
+    distLayout->addWidget(m_kernelCmdLine, 9, 1);
+
+    distLayout->addItem(new QSpacerItem(0, 20), 10, 0, 1, 2);
+    auto lblDefaultEnv = new QLabel(tr("Default &Environment:"), this);
+    m_defaultEnvironment = new QTreeWidget(this);
+    m_defaultEnvironment->setHeaderLabels(QStringList{tr("Environment"), tr("Value")});
+    m_defaultEnvironment->setRootIsDecorated(false);
+    lblDefaultEnv->setBuddy(m_defaultEnvironment);
+    distLayout->addWidget(lblDefaultEnv, 11, 0, 1, 2);
+    distLayout->addWidget(m_defaultEnvironment, 12, 0, 1, 2);
+
     auto split = new QSplitter(this);
     split->addWidget(m_distList);
+    split->addWidget(distDetails);
+    split->setStretchFactor(0, 2);
+    split->setStretchFactor(1, 3);
 
     setCentralWidget(split);
 
-    m_openShell = new QAction(QIcon(":/icons/terminal.png"), tr("Open Shell"), this);
+    m_openShell = new QAction(QIcon(":/icons/terminal.ico"), tr("Open Shell"), this);
     m_openShell->setEnabled(false);
 
     auto toolbar = addToolBar(tr("Show Toolbar"));
@@ -117,6 +181,16 @@ WslUi::~WslUi()
 
 void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
 {
+    m_name->setText(QString::null);
+    m_version->setText(QString::null);
+    m_defaultUser->setText(QString::null);
+    m_location->setText(QString::null);
+    m_enableInterop->setChecked(false);
+    m_appendNTPath->setChecked(false);
+    m_enableDriveMounting->setChecked(false);
+    m_kernelCmdLine->setText(QString::null);
+    m_defaultEnvironment->clear();
+
     if (!current) {
         m_openShell->setEnabled(false);
         return;
@@ -128,7 +202,24 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
     try {
         WslDistribution dist = WslRegistry::findDistByUuid(uuid.toStdWString());
         if (dist.isValid()) {
-            // TODO
+            m_name->setText(QString::fromStdWString(dist.name()));
+            m_version->setText(QString::number(dist.version()));
+            m_defaultUser->setText(tr("Unknown (%1)").arg(dist.defaultUID()));
+            m_location->setText(QString::fromStdWString(dist.path()));
+            m_enableInterop->setChecked(dist.flags() & WslApi::DistributionFlags_EnableInterop);
+            m_appendNTPath->setChecked(dist.flags() & WslApi::DistributionFlags_AppendNTPath);
+            m_enableDriveMounting->setChecked(dist.flags() & WslApi::DistributionFlags_EnableDriveMounting);
+            m_kernelCmdLine->setText(QString::fromStdWString(dist.kernelCmdLine()));
+            for (const std::wstring &envLine : dist.defaultEnvironment()) {
+                auto env = QString::fromStdWString(envLine);
+                QStringList parts = env.split(QLatin1Char('='));
+                if (parts.count() != 2) {
+                    QMessageBox::critical(this, QString::null,
+                                    tr("Invalid environment line: %1").arg(env));
+                    continue;
+                }
+                new QTreeWidgetItem(m_defaultEnvironment, parts);
+            }
         }
     } catch (const std::runtime_error &err) {
         QMessageBox::critical(this, QString::null,
