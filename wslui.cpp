@@ -62,11 +62,12 @@ WslUi::WslUi()
     m_distList = new QListWidget(this);
     m_distList->setIconSize(QSize(32, 32));
 
-    auto distDetails = new QFrame(this);
-    distDetails->setFrameStyle(QFrame::StyledPanel);
-    distDetails->setBackgroundRole(QPalette::Base);
-    distDetails->setAutoFillBackground(true);
-    auto distLayout = new QGridLayout(distDetails);
+    m_distDetails = new QFrame(this);
+    m_distDetails->setFrameStyle(QFrame::StyledPanel);
+    m_distDetails->setBackgroundRole(QPalette::Base);
+    m_distDetails->setAutoFillBackground(true);
+    m_distDetails->setEnabled(false);
+    auto distLayout = new QGridLayout(m_distDetails);
     distLayout->setContentsMargins(5, 5, 5, 5);
 
     auto lblName = new QLabel(tr("Name:"), this);
@@ -120,7 +121,7 @@ WslUi::WslUi()
 
     auto split = new QSplitter(this);
     split->addWidget(m_distList);
-    split->addWidget(distDetails);
+    split->addWidget(m_distDetails);
     split->setStretchFactor(0, 2);
     split->setStretchFactor(1, 3);
 
@@ -142,12 +143,17 @@ WslUi::WslUi()
         distActivated(m_distList->currentItem());
     });
 
+    connect(m_enableInterop, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
+    connect(m_appendNTPath, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
+    connect(m_enableDriveMounting, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
+    connect(m_kernelCmdLine, &QLineEdit::editingFinished, this, &WslUi::commitKernelCmdLine);
+
     try {
         m_registry = new WslRegistry;
         for (const auto &dist : m_registry->getDistributions()) {
             auto distName = QString::fromStdWString(dist.name());
             auto item = new QListWidgetItem(distName, m_distList);
-            item->setData(DistUuidRole, QString::fromStdWString(dist.uuidString()));
+            item->setData(DistUuidRole, QString::fromStdWString(dist.uuid()));
             item->setData(DistNameRole, distName);
             item->setIcon(pickDistIcon(distName));
         }
@@ -160,7 +166,7 @@ WslUi::WslUi()
     try {
         auto defaultDist = m_registry->defaultDistribution();
         if (defaultDist.isValid()) {
-            auto distUuid = QString::fromStdWString(defaultDist.uuidString());
+            auto distUuid = QString::fromStdWString(defaultDist.uuid());
             QListWidgetItem *defaultItem = findDistByUuid(distUuid);
             if (defaultItem)
                 defaultItem->setText(tr("%1 (Default)").arg(defaultItem->text()));
@@ -191,40 +197,14 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
     m_kernelCmdLine->setText(QString::null);
     m_defaultEnvironment->clear();
 
-    if (!current) {
-        m_openShell->setEnabled(false);
-        return;
-    }
-    m_openShell->setEnabled(true);
+    m_openShell->setEnabled(false);
+    m_distDetails->setEnabled(false);
 
-    auto uuid = current->data(DistUuidRole).toString();
-    auto distName = current->data(DistNameRole).toString();
-    try {
-        WslDistribution dist = WslRegistry::findDistByUuid(uuid.toStdWString());
-        if (dist.isValid()) {
-            m_name->setText(QString::fromStdWString(dist.name()));
-            m_version->setText(QString::number(dist.version()));
-            m_defaultUser->setText(tr("Unknown (%1)").arg(dist.defaultUID()));
-            m_location->setText(QString::fromStdWString(dist.path()));
-            m_enableInterop->setChecked(dist.flags() & WslApi::DistributionFlags_EnableInterop);
-            m_appendNTPath->setChecked(dist.flags() & WslApi::DistributionFlags_AppendNTPath);
-            m_enableDriveMounting->setChecked(dist.flags() & WslApi::DistributionFlags_EnableDriveMounting);
-            m_kernelCmdLine->setText(QString::fromStdWString(dist.kernelCmdLine()));
-            for (const std::wstring &envLine : dist.defaultEnvironment()) {
-                auto env = QString::fromStdWString(envLine);
-                QStringList parts = env.split(QLatin1Char('='));
-                if (parts.count() != 2) {
-                    QMessageBox::critical(this, QString::null,
-                                    tr("Invalid environment line: %1").arg(env));
-                    continue;
-                }
-                new QTreeWidgetItem(m_defaultEnvironment, parts);
-            }
-        }
-    } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
-                tr("Failed to query distribution %1: %2")
-                .arg(distName).arg(err.what()));
+    WslDistribution dist = getDistribution(current);
+    if (dist.isValid()) {
+        updateDistProperties(dist);
+        m_openShell->setEnabled(true);
+        m_distDetails->setEnabled(true);
     }
 }
 
@@ -238,33 +218,57 @@ static unsigned _startShell(void *pvContext)
     auto context = reinterpret_cast<_startShell_Context *>(pvContext);
 
     DWORD exitCode;
-    WslApi::LaunchInteractive(context->distName.c_str(), L"", FALSE, &exitCode);
+    try {
+        WslApi::LaunchInteractive(context->distName.c_str(), L"", FALSE, &exitCode);
+    } catch (const std::runtime_error &err) {
+        QMessageBox::critical(nullptr, QString::null,
+                QObject::tr("Failed to start distribution %1: %2")
+                .arg(context->distName).arg(err.what()));
+    }
+
     delete context;
     return exitCode;
 }
 
 void WslUi::distActivated(QListWidgetItem *item)
 {
-    if (!item)
-        return;
+    WslDistribution dist = getDistribution(item);
+    if (dist.isValid()) {
+        auto context = new _startShell_Context;
+        context->distName = dist.name();
+        unsigned threadId;
+        HANDLE th = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0,
+                            &_startShell, reinterpret_cast<void *>(context),
+                            0, &threadId));
+        CloseHandle(th);
+    }
+}
 
-    auto uuid = item->data(DistUuidRole).toString();
-    auto distName = item->data(DistNameRole).toString();
-    try {
-        WslDistribution dist = WslRegistry::findDistByUuid(uuid.toStdWString());
-        if (dist.isValid()) {
-            auto context = new _startShell_Context;
-            context->distName = dist.name();
-            unsigned threadId;
-            HANDLE th = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0,
-                                &_startShell, reinterpret_cast<void *>(context),
-                                0, &threadId));
-            CloseHandle(th);
-        }
-    } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
-                tr("Failed to start distribution %1: %2")
-                .arg(distName).arg(err.what()));
+void WslUi::commitDistFlags(bool)
+{
+    WslDistribution dist = getDistribution(m_distList->currentItem());
+    if (dist.isValid()) {
+        // Preserve any flags we don't know about...
+        int flags = dist.flags() & ~WslApi::DistributionFlags_KnownMask;
+        if (m_enableInterop->isChecked())
+            flags |= WslApi::DistributionFlags_EnableInterop;
+        if (m_appendNTPath->isChecked())
+            flags |= WslApi::DistributionFlags_AppendNTPath;
+        if (m_enableDriveMounting->isChecked())
+            flags |= WslApi::DistributionFlags_EnableDriveMounting;
+
+        dist.setFlags(static_cast<WslApi::DistributionFlags>(flags));
+        updateDistProperties(dist);
+    }
+}
+
+void WslUi::commitKernelCmdLine()
+{
+    WslDistribution dist = getDistribution(m_distList->currentItem());
+    if (dist.isValid()) {
+        std::wstring cmdline = m_kernelCmdLine->text().toStdWString();
+        dist.setKernelCmdLine(cmdline);
+        updateDistProperties(dist);
     }
 }
 
@@ -276,4 +280,45 @@ QListWidgetItem *WslUi::findDistByUuid(const QString &uuid)
             return item;
     }
     return nullptr;
+}
+
+void WslUi::updateDistProperties(const WslDistribution &dist)
+{
+    m_name->setText(QString::fromStdWString(dist.name()));
+    m_version->setText(QString::number(dist.version()));
+    m_defaultUser->setText(tr("Unknown (%1)").arg(dist.defaultUID()));
+    m_location->setText(QString::fromStdWString(dist.path()));
+    m_enableInterop->setChecked(dist.flags() & WslApi::DistributionFlags_EnableInterop);
+    m_appendNTPath->setChecked(dist.flags() & WslApi::DistributionFlags_AppendNTPath);
+    m_enableDriveMounting->setChecked(dist.flags() & WslApi::DistributionFlags_EnableDriveMounting);
+    m_kernelCmdLine->setText(QString::fromStdWString(dist.kernelCmdLine()));
+
+    m_defaultEnvironment->clear();
+    for (const std::wstring &envLine : dist.defaultEnvironment()) {
+        auto env = QString::fromStdWString(envLine);
+        QStringList parts = env.split(QLatin1Char('='));
+        if (parts.count() != 2) {
+            QMessageBox::critical(this, QString::null,
+                            tr("Invalid environment line: %1").arg(env));
+            continue;
+        }
+        new QTreeWidgetItem(m_defaultEnvironment, parts);
+    }
+}
+
+WslDistribution WslUi::getDistribution(QListWidgetItem *item)
+{
+    if (item) {
+        auto uuid = item->data(DistUuidRole).toString();
+        auto distName = item->data(DistNameRole).toString();
+        try {
+            return WslRegistry::findDistByUuid(uuid.toStdWString());
+        } catch (const std::runtime_error &err) {
+            QMessageBox::critical(this, QString::null,
+                    tr("Failed to query distribution %1: %2")
+                    .arg(distName).arg(err.what()));
+        }
+    }
+
+    return WslDistribution();
 }

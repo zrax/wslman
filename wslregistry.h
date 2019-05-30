@@ -16,7 +16,6 @@
 
 #include "wslwrap.h"
 
-#include <objbase.h>
 #include <string>
 #include <vector>
 
@@ -25,11 +24,10 @@ class WslDistribution
 public:
     WslDistribution();
 
-    bool isValid() const { return !m_name.empty(); }
+    bool isValid() const { return !m_uuid.empty(); }
 
     const std::wstring &name() const { return m_name; }
-    const UUID &uuid() const { return m_uuid; }
-    std::wstring uuidString() const;
+    std::wstring uuid() const { return m_uuid; }
 
     uint32_t version() const { return m_version; }
     uint32_t defaultUID() const { return m_defaultUID; }
@@ -40,6 +38,16 @@ public:
     const std::wstring &path() const { return m_path; }
     const std::wstring &kernelCmdLine() const { return m_kernelCmdLine; }
     const std::wstring &packageFamilyName() const { return m_packageFamilyName; }
+
+    void setName(const std::wstring &name);
+    void setVersion(uint32_t version);
+    void setDefaultUID(uint32_t uid);
+    void setFlags(WslApi::DistributionFlags flags);
+    void setKernelCmdLine(const std::wstring &cmdline);
+
+    void addEnvironment(const std::wstring &key, const std::wstring &value);
+    void delEnvironment(const std::wstring &key);
+    void setEnvironment(const std::vector<std::wstring> &env);
 
     static WslDistribution loadFromRegistry(const std::wstring &path);
 
@@ -52,7 +60,7 @@ private:
     std::vector<std::wstring> m_defaultEnvironment;
 
     // Available only in the Registry
-    UUID m_uuid;
+    std::wstring m_uuid;
     uint32_t m_state;
     std::wstring m_path;
     std::wstring m_kernelCmdLine;

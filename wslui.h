@@ -17,12 +17,14 @@
 #include <QMainWindow>
 
 class WslRegistry;
+class WslDistribution;
 class QListWidget;
 class QListWidgetItem;
 class QTreeWidget;
 class QLabel;
 class QLineEdit;
 class QCheckBox;
+class QFrame;
 class QAction;
 
 class WslUi : public QMainWindow
@@ -34,10 +36,13 @@ public:
 private slots:
     void distSelected(QListWidgetItem *current, QListWidgetItem *);
     void distActivated(QListWidgetItem *item);
+    void commitDistFlags(bool);
+    void commitKernelCmdLine();
 
 private:
     WslRegistry *m_registry;
     QListWidget *m_distList;
+    QFrame *m_distDetails;
     QLabel *m_name;
     QLabel *m_version;
     QLabel *m_defaultUser;
@@ -51,4 +56,7 @@ private:
     QAction *m_openShell;
 
     QListWidgetItem *findDistByUuid(const QString &uuid);
+    void updateDistProperties(const WslDistribution &dist);
+
+    WslDistribution getDistribution(QListWidgetItem *item);
 };
