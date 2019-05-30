@@ -3,7 +3,12 @@
     <qresource>
         <file>icons/terminal.png</file>
         <file>icons/dist-alpine.png</file>
+        <file>icons/dist-arch.png</file>
         <file>icons/dist-debian.png</file>
+        <file>icons/dist-fedora.png</file>
+        <file>icons/dist-gentoo.png</file>
+        <file>icons/dist-redhat.png</file>
+        <file>icons/dist-suse.png</file>
         <file>icons/dist-ubuntu.png</file>
     </qresource>
 </RCC>

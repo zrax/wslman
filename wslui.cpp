@@ -29,8 +29,20 @@ static QIcon pickDistIcon(const QString &name)
 {
     if (name.contains(QLatin1String("Alpine"), Qt::CaseInsensitive))
         return QIcon(":/icons/dist-alpine.png");
+    else if (name.contains(QLatin1String("Arch"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-arch.png");
     else if (name.contains(QLatin1String("Debian"), Qt::CaseInsensitive))
         return QIcon(":/icons/dist-debian.png");
+    else if (name.contains(QLatin1String("Fedora"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-fedora.png");
+    else if (name.contains(QLatin1String("Gentoo"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-gentoo.png");
+    else if (name.contains(QRegularExpression("Red.?Hat", QRegularExpression::CaseInsensitiveOption))
+             || name.contains(QLatin1String("RHEL"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-redhat.png");
+    else if (name.contains(QLatin1String("SUSE"), Qt::CaseInsensitive)
+             || name.contains(QLatin1String("SLES"), Qt::CaseInsensitive))
+        return QIcon(":/icons/dist-suse.png");
     else if (name.contains(QLatin1String("Ubuntu"), Qt::CaseInsensitive))
         return QIcon(":/icons/dist-ubuntu.png");
     return QIcon(":/icons/terminal.png");
