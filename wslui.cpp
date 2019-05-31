@@ -68,6 +68,7 @@ WslUi::WslUi()
 
     m_distList = new QListWidget(this);
     m_distList->setIconSize(QSize(32, 32));
+    m_distList->setContextMenuPolicy(Qt::ActionsContextMenu);
 
     m_distDetails = new QFrame(this);
     m_distDetails->setFrameStyle(QFrame::StyledPanel);
@@ -171,7 +172,7 @@ WslUi::WslUi()
 
     m_openShell = new QAction(QIcon(":/icons/terminal.ico"), tr("Open Shell"), this);
     m_openShell->setEnabled(false);
-    auto refreshDists = new QAction(QIcon(":/icons/view-refresh.png"), tr("Refresh"), this);
+    auto refreshDists = new QAction(QIcon(":/icons/view-refresh.ico"), tr("Refresh"), this);
 
     auto toolbar = addToolBar(tr("Show Toolbar"));
     toolbar->setMovable(false);
@@ -179,8 +180,12 @@ WslUi::WslUi()
     toolbar->setIconSize(QSize(32, 32));
     toolbar->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     toolbar->addAction(m_openShell);
-    toolbar->addSeparator();
+    QAction *actionSep1 = toolbar->addSeparator();
     toolbar->addAction(refreshDists);
+
+    m_distList->addAction(m_openShell);
+    m_distList->addAction(actionSep1);
+    m_distList->addAction(refreshDists);
 
     connect(m_distList, &QListWidget::currentItemChanged, this, &WslUi::distSelected);
     connect(m_distList, &QListWidget::itemActivated, this, &WslUi::distActivated);
