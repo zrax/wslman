@@ -22,6 +22,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QCheckBox>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QFrame>
 #include <QSplitter>
@@ -29,7 +30,11 @@
 #include <QMessageBox>
 #include <process.h>
 
-enum { DistUuidRole = Qt::UserRole, DistNameRole };
+enum {
+    DistUuidRole = Qt::UserRole,
+    DistNameRole,
+    EnvSavedKeyRole,
+};
 
 static QIcon pickDistIcon(const QString &name)
 {
@@ -80,12 +85,22 @@ WslUi::WslUi()
     distLayout->addWidget(lblVersion, 1, 0);
     distLayout->addWidget(m_version, 1, 1);
 
-    auto lblDefaultUser = new QLabel(tr("Default User:"), this);
-    m_defaultUser = new QLabel(this);
-    distLayout->addWidget(lblDefaultUser, 2, 0);
-    distLayout->addWidget(m_defaultUser, 2, 1);
+    distLayout->addItem(new QSpacerItem(0, 10), 2, 0, 1, 2);
+    auto lblDefaultUser = new QLabel(tr("Default &User:"), this);
+    auto userContainer = new QWidget(this);
+    auto userLayout = new QHBoxLayout(userContainer);
+    userLayout->setContentsMargins(0, 0, 0, 0);
+    distLayout->addWidget(lblDefaultUser, 3, 0);
+    distLayout->addWidget(userContainer, 3, 1, 1, 2);
 
-    distLayout->addItem(new QSpacerItem(0, 10), 3, 0, 1, 2);
+    m_defaultUser = new QLabel(userContainer);
+    auto editDefaultUser = new QToolButton(userContainer);
+    editDefaultUser->setText(QStringLiteral("..."));
+    lblDefaultUser->setBuddy(editDefaultUser);
+    userLayout->addWidget(m_defaultUser);
+    userLayout->addWidget(editDefaultUser);
+    userLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::MinimumExpanding, QSizePolicy::Minimum));
+
     auto lblLocation = new QLabel(tr("&Location:"), this);
     m_location = new QLineEdit(this);
     m_location->setReadOnly(true);
@@ -107,8 +122,11 @@ WslUi::WslUi()
     auto lblKernelCmdLine = new QLabel(tr("&Kernel Command Line:"), this);
     m_kernelCmdLine = new QLineEdit(this);
     lblKernelCmdLine->setBuddy(m_kernelCmdLine);
+    auto editKernelCmdLine = new QToolButton(this);
+    editKernelCmdLine->setText(QStringLiteral("..."));
     distLayout->addWidget(lblKernelCmdLine, 9, 0);
     distLayout->addWidget(m_kernelCmdLine, 9, 1);
+    distLayout->addWidget(editKernelCmdLine, 9, 2);
 
     distLayout->addItem(new QSpacerItem(0, 20), 10, 0, 1, 2);
     auto lblDefaultEnv = new QLabel(tr("Default &Environment:"), this);
@@ -118,6 +136,28 @@ WslUi::WslUi()
     lblDefaultEnv->setBuddy(m_defaultEnvironment);
     distLayout->addWidget(lblDefaultEnv, 11, 0, 1, 2);
     distLayout->addWidget(m_defaultEnvironment, 12, 0, 1, 2);
+
+    auto envButtons = new QWidget(this);
+    auto envLayout = new QVBoxLayout(envButtons);
+    envLayout->setContentsMargins(0, 0, 0, 0);
+    distLayout->addWidget(envButtons, 12, 2);
+
+    m_envAdd = new QToolButton(envButtons);
+    m_envAdd->setIconSize(QSize(16, 16));
+    m_envAdd->setIcon(QIcon(":/icons/list-add.png"));
+    m_envEdit = new QToolButton(envButtons);
+    m_envEdit->setIconSize(QSize(16, 16));
+    m_envEdit->setIcon(QIcon(":/icons/document-edit.png"));
+    m_envEdit->setEnabled(false);
+    m_envDel = new QToolButton(envButtons);
+    m_envDel->setIconSize(QSize(16, 16));
+    m_envDel->setIcon(QIcon(":/icons/edit-delete.png"));
+    m_envDel->setEnabled(false);
+
+    envLayout->addWidget(m_envAdd);
+    envLayout->addWidget(m_envEdit);
+    envLayout->addWidget(m_envDel);
+    envLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::MinimumExpanding));
 
     auto split = new QSplitter(this);
     split->addWidget(m_distList);
@@ -147,6 +187,25 @@ WslUi::WslUi()
     connect(m_appendNTPath, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
     connect(m_enableDriveMounting, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
     connect(m_kernelCmdLine, &QLineEdit::editingFinished, this, &WslUi::commitKernelCmdLine);
+
+    connect(m_defaultEnvironment, &QTreeWidget::currentItemChanged,
+            this, &WslUi::environSelected);
+    connect(m_defaultEnvironment, &QTreeWidget::itemChanged,
+            this, &WslUi::environChanged);
+
+    connect(m_envAdd, &QToolButton::clicked, this, [this](bool) {
+        m_defaultEnvironment->blockSignals(true);
+        auto envItem = new QTreeWidgetItem(m_defaultEnvironment);
+        envItem->setFlags(envItem->flags() | Qt::ItemIsEditable);
+        m_defaultEnvironment->blockSignals(false);
+        m_defaultEnvironment->editItem(envItem, 0);
+    });
+    connect(m_envEdit, &QToolButton::clicked, this, [this](bool) {
+        QTreeWidgetItem *item = m_defaultEnvironment->currentItem();
+        if (item)
+            m_defaultEnvironment->editItem(item, 1);
+    });
+    connect(m_envDel, &QToolButton::clicked, this, &WslUi::deleteSelectedEnviron);
 
     try {
         m_registry = new WslRegistry;
@@ -257,7 +316,12 @@ void WslUi::commitDistFlags(bool)
         if (m_enableDriveMounting->isChecked())
             flags |= WslApi::DistributionFlags_EnableDriveMounting;
 
-        dist.setFlags(static_cast<WslApi::DistributionFlags>(flags));
+        try {
+            dist.setFlags(static_cast<WslApi::DistributionFlags>(flags));
+        } catch (const std::runtime_error &err) {
+            QMessageBox::critical(this, QString::null,
+                    tr("Failed to set property: %1").arg(err.what()));
+        }
         updateDistProperties(dist);
     }
 }
@@ -267,7 +331,66 @@ void WslUi::commitKernelCmdLine()
     WslDistribution dist = getDistribution(m_distList->currentItem());
     if (dist.isValid()) {
         std::wstring cmdline = m_kernelCmdLine->text().toStdWString();
-        dist.setKernelCmdLine(cmdline);
+        try {
+            dist.setKernelCmdLine(cmdline);
+        } catch (const std::runtime_error &err) {
+            QMessageBox::critical(this, QString::null,
+                    tr("Failed to set property: %1").arg(err.what()));
+        }
+        updateDistProperties(dist);
+    }
+}
+
+void WslUi::environSelected(QTreeWidgetItem *current, QTreeWidgetItem *)
+{
+    if (current) {
+        m_envEdit->setEnabled(true);
+        m_envDel->setEnabled(true);
+    } else {
+        m_envEdit->setEnabled(false);
+        m_envDel->setEnabled(false);
+    }
+}
+
+void WslUi::environChanged(QTreeWidgetItem *item, int column)
+{
+    WslDistribution dist = getDistribution(m_distList->currentItem());
+    if (dist.isValid()) {
+        try {
+            if (column == 0) {
+                // Changed the key...  Delete the old one if it exists
+                const QString oldKey = item->data(0, EnvSavedKeyRole).toString();
+                if (!oldKey.isEmpty())
+                    dist.delEnvironment(oldKey.toStdWString());
+
+                m_defaultEnvironment->blockSignals(true);
+                item->setData(0, EnvSavedKeyRole, item->text(0));
+                m_defaultEnvironment->blockSignals(false);
+            }
+            const QString key = item->text(0);
+            const QString value = item->text(1);
+            if (!key.isEmpty())
+                dist.addEnvironment(key.toStdWString(), value.toStdWString());
+        } catch (const std::runtime_error &err) {
+            QMessageBox::critical(this, QString::null,
+                    tr("Failed to set environment variable: %1").arg(err.what()));
+        }
+        updateDistProperties(dist);
+    }
+}
+
+void WslUi::deleteSelectedEnviron(bool)
+{
+    QTreeWidgetItem *envItem = m_defaultEnvironment->currentItem();
+    WslDistribution dist = getDistribution(m_distList->currentItem());
+    if (envItem && dist.isValid()) {
+        QString envKey = envItem->data(0, EnvSavedKeyRole).toString();
+        try {
+            dist.delEnvironment(envKey.toStdWString());
+        } catch (const std::runtime_error &err) {
+            QMessageBox::critical(this, QString::null,
+                    tr("Failed to delete environment variable: %1").arg(err.what()));
+        }
         updateDistProperties(dist);
     }
 }
@@ -302,7 +425,12 @@ void WslUi::updateDistProperties(const WslDistribution &dist)
                             tr("Invalid environment line: %1").arg(env));
             continue;
         }
-        new QTreeWidgetItem(m_defaultEnvironment, parts);
+
+        m_defaultEnvironment->blockSignals(true);
+        auto envItem = new QTreeWidgetItem(m_defaultEnvironment, parts);
+        envItem->setFlags(envItem->flags() | Qt::ItemIsEditable);
+        envItem->setData(0, EnvSavedKeyRole, parts.first());
+        m_defaultEnvironment->blockSignals(false);
     }
 }
 

@@ -21,9 +21,11 @@ class WslDistribution;
 class QListWidget;
 class QListWidgetItem;
 class QTreeWidget;
+class QTreeWidgetItem;
 class QLabel;
 class QLineEdit;
 class QCheckBox;
+class QToolButton;
 class QFrame;
 class QAction;
 
@@ -38,6 +40,9 @@ private slots:
     void distActivated(QListWidgetItem *item);
     void commitDistFlags(bool);
     void commitKernelCmdLine();
+    void environSelected(QTreeWidgetItem *current, QTreeWidgetItem *);
+    void environChanged(QTreeWidgetItem *item, int column);
+    void deleteSelectedEnviron(bool);
 
 private:
     WslRegistry *m_registry;
@@ -52,6 +57,9 @@ private:
     QCheckBox *m_enableDriveMounting;
     QLineEdit *m_kernelCmdLine;
     QTreeWidget *m_defaultEnvironment;
+    QToolButton *m_envAdd;
+    QToolButton *m_envEdit;
+    QToolButton *m_envDel;
 
     QAction *m_openShell;
 
