@@ -171,6 +171,7 @@ WslUi::WslUi()
 
     m_openShell = new QAction(QIcon(":/icons/terminal.ico"), tr("Open Shell"), this);
     m_openShell->setEnabled(false);
+    auto refreshDists = new QAction(QIcon(":/icons/view-refresh.png"), tr("Refresh"), this);
 
     auto toolbar = addToolBar(tr("Show Toolbar"));
     toolbar->setMovable(false);
@@ -178,11 +179,16 @@ WslUi::WslUi()
     toolbar->setIconSize(QSize(32, 32));
     toolbar->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     toolbar->addAction(m_openShell);
+    toolbar->addSeparator();
+    toolbar->addAction(refreshDists);
 
     connect(m_distList, &QListWidget::currentItemChanged, this, &WslUi::distSelected);
     connect(m_distList, &QListWidget::itemActivated, this, &WslUi::distActivated);
     connect(m_openShell, &QAction::triggered, this, [this](bool) {
         distActivated(m_distList->currentItem());
+    });
+    connect(refreshDists, &QAction::triggered, this, [this](bool) {
+        loadDistributions();
     });
 
     connect(m_enableInterop, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
@@ -209,36 +215,7 @@ WslUi::WslUi()
     });
     connect(m_envDel, &QToolButton::clicked, this, &WslUi::deleteSelectedEnviron);
 
-    try {
-        m_registry = new WslRegistry;
-        for (const auto &dist : m_registry->getDistributions()) {
-            auto distName = QString::fromStdWString(dist.name());
-            auto item = new QListWidgetItem(distName, m_distList);
-            item->setData(DistUuidRole, QString::fromStdWString(dist.uuid()));
-            item->setData(DistNameRole, distName);
-            item->setIcon(pickDistIcon(distName));
-        }
-        m_distList->sortItems();
-    } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
-                tr("Failed to get distribution list: %1").arg(err.what()));
-    }
-
-    try {
-        auto defaultDist = m_registry->defaultDistribution();
-        if (defaultDist.isValid()) {
-            auto distUuid = QString::fromStdWString(defaultDist.uuid());
-            QListWidgetItem *defaultItem = findDistByUuid(distUuid);
-            if (defaultItem)
-                defaultItem->setText(tr("%1 (Default)").arg(defaultItem->text()));
-            m_distList->setCurrentItem(defaultItem);
-        } else if (m_distList->count() != 0) {
-            m_distList->setCurrentItem(m_distList->item(0));
-        }
-    } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
-                tr("Failed to query default distribution: %1").arg(err.what()));
-    }
+    loadDistributions();
 }
 
 WslUi::~WslUi()
@@ -437,6 +414,60 @@ void WslUi::deleteSelectedEnviron(bool)
         }
         updateDistProperties(dist);
     }
+}
+
+void WslUi::loadDistributions()
+{
+    QString selectedUuid;
+    QListWidgetItem *current = m_distList->currentItem();
+    if (current)
+        selectedUuid = current->data(DistUuidRole).toString();
+
+    m_distList->clear();
+
+    std::vector<WslDistribution> distributions;
+    try {
+        if (!m_registry)
+            m_registry = new WslRegistry;
+        distributions = m_registry->getDistributions();
+    } catch (const std::runtime_error &err) {
+        QMessageBox::critical(this, QString::null,
+                tr("Failed to get distribution list: %1").arg(err.what()));
+    }
+
+    for (const auto &dist : distributions) {
+        auto distName = QString::fromStdWString(dist.name());
+        auto item = new QListWidgetItem(distName, m_distList);
+        item->setData(DistUuidRole, QString::fromStdWString(dist.uuid()));
+        item->setData(DistNameRole, distName);
+        item->setIcon(pickDistIcon(distName));
+    }
+    m_distList->sortItems();
+
+    WslDistribution defaultDist;
+    try {
+        defaultDist = m_registry->defaultDistribution();
+    } catch (const std::runtime_error &err) {
+        QMessageBox::critical(this, QString::null,
+                tr("Failed to query default distribution: %1").arg(err.what()));
+    }
+
+    QListWidgetItem *defaultItem = nullptr;
+    if (defaultDist.isValid()) {
+        auto distUuid = QString::fromStdWString(defaultDist.uuid());
+        defaultItem = findDistByUuid(distUuid);
+        if (defaultItem)
+            defaultItem->setText(tr("%1 (Default)").arg(defaultItem->text()));
+    } else if (m_distList->count() != 0) {
+        defaultItem = m_distList->item(0);
+    }
+
+    // Select the previously selected item if applicable, or the WSL default
+    // if one exists.
+    if (!selectedUuid.isEmpty())
+        defaultItem = findDistByUuid(selectedUuid);
+    if (defaultItem)
+        m_distList->setCurrentItem(defaultItem);
 }
 
 QListWidgetItem *WslUi::findDistByUuid(const QString &uuid)

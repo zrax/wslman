@@ -43,6 +43,7 @@ private slots:
     void environSelected(QTreeWidgetItem *current, QTreeWidgetItem *);
     void environChanged(QTreeWidgetItem *item, int column);
     void deleteSelectedEnviron(bool);
+    void loadDistributions();
 
 private:
     WslRegistry *m_registry;
