@@ -290,6 +290,11 @@ WslDistribution WslRegistry::defaultDistribution() const
     return findDistByUuid(uuid);
 }
 
+void WslRegistry::setDefaultDistribution(const std::wstring &uuid)
+{
+    winregSetWstring(LXSS_ROOT_PATH, L"DefaultDistribution", uuid);
+}
+
 WslDistribution WslRegistry::findDistByName(const std::wstring &name) const
 {
     wchar_t buffer[MAX_PATH];

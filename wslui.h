@@ -44,6 +44,7 @@ private slots:
     void environChanged(QTreeWidgetItem *item, int column);
     void deleteSelectedEnviron(bool);
     void loadDistributions();
+    void setCurrentDistAsDefault();
 
 private:
     WslRegistry *m_registry;
@@ -63,6 +64,7 @@ private:
     QToolButton *m_envDel;
 
     QAction *m_openShell;
+    QAction *m_setDefault;
 
     QListWidgetItem *findDistByUuid(const QString &uuid);
     void updateDistProperties(const WslDistribution &dist);

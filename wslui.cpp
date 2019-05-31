@@ -172,6 +172,8 @@ WslUi::WslUi()
 
     m_openShell = new QAction(QIcon(":/icons/terminal.ico"), tr("Open Shell"), this);
     m_openShell->setEnabled(false);
+    m_setDefault = new QAction(tr("Set Default"), this);
+    m_setDefault->setEnabled(false);
     auto refreshDists = new QAction(QIcon(":/icons/view-refresh.ico"), tr("Refresh"), this);
 
     auto toolbar = addToolBar(tr("Show Toolbar"));
@@ -184,6 +186,7 @@ WslUi::WslUi()
     toolbar->addAction(refreshDists);
 
     m_distList->addAction(m_openShell);
+    m_distList->addAction(m_setDefault);
     m_distList->addAction(actionSep1);
     m_distList->addAction(refreshDists);
 
@@ -191,6 +194,9 @@ WslUi::WslUi()
     connect(m_distList, &QListWidget::itemActivated, this, &WslUi::distActivated);
     connect(m_openShell, &QAction::triggered, this, [this](bool) {
         distActivated(m_distList->currentItem());
+    });
+    connect(m_setDefault, &QAction::triggered, this, [this](bool) {
+        setCurrentDistAsDefault();
     });
     connect(refreshDists, &QAction::triggered, this, [this](bool) {
         loadDistributions();
@@ -241,12 +247,14 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
     m_defaultEnvironment->clear();
 
     m_openShell->setEnabled(false);
+    m_setDefault->setEnabled(false);
     m_distDetails->setEnabled(false);
 
     WslDistribution dist = getDistribution(current);
     if (dist.isValid()) {
         updateDistProperties(dist);
         m_openShell->setEnabled(true);
+        m_setDefault->setEnabled(true);
         m_distDetails->setEnabled(true);
     }
 }
@@ -473,6 +481,16 @@ void WslUi::loadDistributions()
         defaultItem = findDistByUuid(selectedUuid);
     if (defaultItem)
         m_distList->setCurrentItem(defaultItem);
+}
+
+void WslUi::setCurrentDistAsDefault()
+{
+    QListWidgetItem *current = m_distList->currentItem();
+    if (current) {
+        const QString uuid = current->data(DistUuidRole).toString();
+        m_registry->setDefaultDistribution(uuid.toStdWString());
+        loadDistributions();
+    }
 }
 
 QListWidgetItem *WslUi::findDistByUuid(const QString &uuid)

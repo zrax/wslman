@@ -75,6 +75,7 @@ public:
 
     std::vector<WslDistribution> getDistributions() const;
     WslDistribution defaultDistribution() const;
+    void setDefaultDistribution(const std::wstring &uuid);
 
     WslDistribution findDistByName(const std::wstring &name) const;
     static WslDistribution findDistByUuid(const std::wstring &uuid);
