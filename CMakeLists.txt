@@ -22,6 +22,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt5Core REQUIRED)
 find_package(Qt5Widgets REQUIRED)
+find_package(Qt5WinExtras REQUIRED)
 set(CMAKE_AUTORCC ON)
 
 add_executable(wslman WIN32 wslman.cpp)
@@ -35,7 +36,7 @@ target_sources(wslman PRIVATE
     wslman.qrc
     wslman.rc
 )
-target_link_libraries(wslman PRIVATE Qt5::Core Qt5::Widgets)
+target_link_libraries(wslman PRIVATE Qt5::Core Qt5::Widgets Qt5::WinExtras)
 
 # Find windeployqt, which should be in the same path as Qt5::qmake
 get_target_property(_qmake_executable Qt5::qmake IMPORTED_LOCATION)

@@ -28,6 +28,7 @@
 #include <QSplitter>
 #include <QGridLayout>
 #include <QMessageBox>
+#include <QtWin>
 #include <process.h>
 #include <atomic>
 
@@ -273,12 +274,20 @@ struct _startShell_Context
     std::wstring distName;
     std::atomic<bool> shellTerminated = false;
     QString errorMessage;
+    HICON distIconBig = nullptr;
+    HICON distIconSmall = nullptr;
 
     // One ref for the UI thread and one for the _startShell thread
     std::atomic<int> refs = 2;
     void unref() {
         if (--refs == 0)
             delete this;
+    }
+
+    ~_startShell_Context()
+    {
+        DestroyIcon(distIconBig);
+        DestroyIcon(distIconSmall);
     }
 };
 
@@ -308,6 +317,14 @@ void WslUi::distActivated(QListWidgetItem *item)
 
         auto context = new _startShell_Context;
         context->distName = dist.name();
+
+        const QIcon distIcon = item->icon();
+        context->distIconBig = QtWin::toHICON(distIcon.pixmap(32, 32));
+        context->distIconSmall = QtWin::toHICON(distIcon.pixmap(16, 16));
+        HWND hConsole = GetConsoleWindow();
+        SendMessageW(hConsole, WM_SETICON, ICON_BIG, (LPARAM)context->distIconBig);
+        SendMessageW(hConsole, WM_SETICON, ICON_SMALL, (LPARAM)context->distIconSmall);
+
         unsigned threadId;
         HANDLE th = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0,
                             &_startShell, reinterpret_cast<void *>(context),
