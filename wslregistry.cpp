@@ -79,31 +79,41 @@ static uint32_t winregGetDword(const std::wstring &path, LPCWSTR name)
 static bool winregSetWstring(const std::wstring &path, LPCWSTR name,
                              const std::wstring &value)
 {
-    auto size = static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t));
-    auto rc = RegSetKeyValueW(HKEY_CURRENT_USER, path.c_str(), name, REG_SZ,
-                              value.c_str(), size);
+    LSTATUS rc;
+    if (value.empty()) {
+        rc = RegDeleteKeyValueW(HKEY_CURRENT_USER, path.c_str(), name);
+    } else {
+        auto size = static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t));
+        rc = RegSetKeyValueW(HKEY_CURRENT_USER, path.c_str(), name, REG_SZ,
+                             value.c_str(), size);
+    }
     return rc == ERROR_SUCCESS;
 }
 
 static bool winregSetWstringArray(const std::wstring &path, LPCWSTR name,
                                   const std::vector<std::wstring> &value)
 {
-    size_t length = 1;
-    for (const std::wstring &str : value)
-        length += str.size() + 1;
+    LSTATUS rc;
+    if (value.empty()) {
+        rc = RegDeleteKeyValueW(HKEY_CURRENT_USER, path.c_str(), name);
+    } else {
+        size_t length = 1;
+        for (const std::wstring &str : value)
+            length += str.size() + 1;
 
-    auto buffer = std::make_unique<wchar_t[]>(length);
-    wchar_t *bufp = buffer.get();
-    for (const std::wstring &str : value) {
-        std::char_traits<wchar_t>::copy(bufp, str.c_str(), str.size());
-        bufp += str.size();
-        *bufp++ = 0;
+        auto buffer = std::make_unique<wchar_t[]>(length);
+        wchar_t *bufp = buffer.get();
+        for (const std::wstring &str : value) {
+            std::char_traits<wchar_t>::copy(bufp, str.c_str(), str.size());
+            bufp += str.size();
+            *bufp++ = 0;
+        }
+        *bufp = 0;
+
+        auto size = static_cast<DWORD>(length * sizeof(wchar_t));
+        rc = RegSetKeyValueW(HKEY_CURRENT_USER, path.c_str(), name, REG_MULTI_SZ,
+                             buffer.get(), size);
     }
-    *bufp = 0;
-
-    auto size = static_cast<DWORD>(length * sizeof(wchar_t));
-    auto rc = RegSetKeyValueW(HKEY_CURRENT_USER, path.c_str(), name, REG_MULTI_SZ,
-                              buffer.get(), size);
     return rc == ERROR_SUCCESS;
 }
 
