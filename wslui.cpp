@@ -29,6 +29,7 @@
 #include <QGridLayout>
 #include <QMessageBox>
 #include <process.h>
+#include <atomic>
 
 enum {
     DistUuidRole = Qt::UserRole,
@@ -270,6 +271,15 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
 struct _startShell_Context
 {
     std::wstring distName;
+    std::atomic<bool> shellTerminated = false;
+    QString errorMessage;
+
+    // One ref for the UI thread and one for the _startShell thread
+    std::atomic<int> refs = 2;
+    void unref() {
+        if (--refs == 0)
+            delete this;
+    }
 };
 
 static unsigned _startShell(void *pvContext)
@@ -280,12 +290,12 @@ static unsigned _startShell(void *pvContext)
     try {
         WslApi::LaunchInteractive(context->distName.c_str(), L"", FALSE, &exitCode);
     } catch (const std::runtime_error &err) {
-        QMessageBox::critical(nullptr, QString::null,
-                QObject::tr("Failed to start distribution %1: %2")
-                .arg(context->distName).arg(err.what()));
+        context->errorMessage = QObject::tr("Failed to start %1: %2")
+                                .arg(context->distName).arg(err.what());
     }
 
-    delete context;
+    context->shellTerminated = true;
+    context->unref();
     return exitCode;
 }
 
@@ -293,6 +303,9 @@ void WslUi::distActivated(QListWidgetItem *item)
 {
     WslDistribution dist = getDistribution(item);
     if (dist.isValid()) {
+        AllocConsole();
+        SetConsoleTitleW(dist.name().c_str());
+
         auto context = new _startShell_Context;
         context->distName = dist.name();
         unsigned threadId;
@@ -300,6 +313,20 @@ void WslUi::distActivated(QListWidgetItem *item)
                             &_startShell, reinterpret_cast<void *>(context),
                             0, &threadId));
         CloseHandle(th);
+
+        // Detach from the console once the WSL process starts using it
+        DWORD processList[4];
+        DWORD processCount = 4;
+        for ( ;; ) {
+            DWORD activeProcs = GetConsoleProcessList(processList, processCount);
+            if (activeProcs > 1 || context->shellTerminated)
+                break;
+            Sleep(100);
+        }
+        if (!context->errorMessage.isEmpty())
+            QMessageBox::critical(this, QString::null, context->errorMessage);
+        context->unref();
+        FreeConsole();
     }
 }
 
