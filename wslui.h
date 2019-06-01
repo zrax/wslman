@@ -25,7 +25,6 @@ class QTreeWidgetItem;
 class QLabel;
 class QLineEdit;
 class QCheckBox;
-class QToolButton;
 class QFrame;
 class QAction;
 
@@ -59,9 +58,9 @@ private:
     QCheckBox *m_enableDriveMounting;
     QLineEdit *m_kernelCmdLine;
     QTreeWidget *m_defaultEnvironment;
-    QToolButton *m_envAdd;
-    QToolButton *m_envEdit;
-    QToolButton *m_envDel;
+    QAction *m_envAdd;
+    QAction *m_envEdit;
+    QAction *m_envDel;
 
     QAction *m_openShell;
     QAction *m_setDefault;

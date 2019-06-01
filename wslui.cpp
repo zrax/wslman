@@ -136,6 +136,7 @@ WslUi::WslUi()
     m_defaultEnvironment = new QTreeWidget(this);
     m_defaultEnvironment->setHeaderLabels(QStringList{tr("Environment"), tr("Value")});
     m_defaultEnvironment->setRootIsDecorated(false);
+    m_defaultEnvironment->setContextMenuPolicy(Qt::ActionsContextMenu);
     lblDefaultEnv->setBuddy(m_defaultEnvironment);
     distLayout->addWidget(lblDefaultEnv, 11, 0, 1, 2);
     distLayout->addWidget(m_defaultEnvironment, 12, 0, 1, 2);
@@ -145,21 +146,28 @@ WslUi::WslUi()
     envLayout->setContentsMargins(0, 0, 0, 0);
     distLayout->addWidget(envButtons, 12, 2);
 
-    m_envAdd = new QToolButton(envButtons);
-    m_envAdd->setIconSize(QSize(16, 16));
-    m_envAdd->setIcon(QIcon(":/icons/list-add.png"));
-    m_envEdit = new QToolButton(envButtons);
-    m_envEdit->setIconSize(QSize(16, 16));
-    m_envEdit->setIcon(QIcon(":/icons/document-edit.png"));
+    m_envAdd = new QAction(QIcon(":/icons/list-add.png"), tr("Add"));
+    m_envEdit = new QAction(QIcon(":/icons/document-edit.png"), tr("Edit"));
     m_envEdit->setEnabled(false);
-    m_envDel = new QToolButton(envButtons);
-    m_envDel->setIconSize(QSize(16, 16));
-    m_envDel->setIcon(QIcon(":/icons/edit-delete.png"));
+    m_envDel = new QAction(QIcon(":/icons/edit-delete.png"), tr("Remove"));
     m_envDel->setEnabled(false);
+    m_defaultEnvironment->addAction(m_envAdd);
+    m_defaultEnvironment->addAction(m_envEdit);
+    m_defaultEnvironment->addAction(m_envDel);
 
-    envLayout->addWidget(m_envAdd);
-    envLayout->addWidget(m_envEdit);
-    envLayout->addWidget(m_envDel);
+    auto envAddButton = new QToolButton(envButtons);
+    envAddButton->setIconSize(QSize(16, 16));
+    envAddButton->setDefaultAction(m_envAdd);
+    auto envEditButton = new QToolButton(envButtons);
+    envEditButton->setIconSize(QSize(16, 16));
+    envEditButton->setDefaultAction(m_envEdit);
+    auto envDelButton = new QToolButton(envButtons);
+    envDelButton->setIconSize(QSize(16, 16));
+    envDelButton->setDefaultAction(m_envDel);
+
+    envLayout->addWidget(envAddButton);
+    envLayout->addWidget(envEditButton);
+    envLayout->addWidget(envDelButton);
     envLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::MinimumExpanding));
 
     auto split = new QSplitter(this);
@@ -212,19 +220,19 @@ WslUi::WslUi()
     connect(m_defaultEnvironment, &QTreeWidget::itemChanged,
             this, &WslUi::environChanged);
 
-    connect(m_envAdd, &QToolButton::clicked, this, [this](bool) {
+    connect(m_envAdd, &QAction::triggered, this, [this](bool) {
         m_defaultEnvironment->blockSignals(true);
         auto envItem = new QTreeWidgetItem(m_defaultEnvironment);
         envItem->setFlags(envItem->flags() | Qt::ItemIsEditable);
         m_defaultEnvironment->blockSignals(false);
         m_defaultEnvironment->editItem(envItem, 0);
     });
-    connect(m_envEdit, &QToolButton::clicked, this, [this](bool) {
+    connect(m_envEdit, &QAction::triggered, this, [this](bool) {
         QTreeWidgetItem *item = m_defaultEnvironment->currentItem();
         if (item)
             m_defaultEnvironment->editItem(item, 1);
     });
-    connect(m_envDel, &QToolButton::clicked, this, &WslUi::deleteSelectedEnviron);
+    connect(m_envDel, &QAction::triggered, this, &WslUi::deleteSelectedEnviron);
 
     loadDistributions();
 }
