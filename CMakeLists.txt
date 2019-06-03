@@ -29,6 +29,8 @@ add_executable(wslman WIN32 wslman.cpp)
 target_sources(wslman PRIVATE
     wslregistry.h
     wslregistry.cpp
+    wslsetuser.h
+    wslsetuser.cpp
     wslwrap.h
     wslwrap.cpp
     wslui.h

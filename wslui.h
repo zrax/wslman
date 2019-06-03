@@ -37,6 +37,7 @@ public:
 private slots:
     void distSelected(QListWidgetItem *current, QListWidgetItem *);
     void distActivated(QListWidgetItem *item);
+    void chooseUser(bool);
     void commitDistFlags(bool);
     void commitKernelCmdLine();
     void environSelected(QTreeWidgetItem *current, QTreeWidgetItem *);
@@ -69,4 +70,6 @@ private:
     void updateDistProperties(const WslDistribution &dist);
 
     WslDistribution getDistribution(QListWidgetItem *item);
+
+    static QString getUsername(const WslDistribution &dist, uint32_t uid);
 };

@@ -32,7 +32,7 @@ namespace WslApi
         DistributionFlags_EnableInterop = 0x1,
         DistributionFlags_AppendNTPath = 0x2,
         DistributionFlags_EnableDriveMounting = 0x4,
-        DistributionFlags_KnownMask = 0x7,
+        DistributionFlags_All = 0x7,
     };
 
     HRESULT ConfigureDistribution(PCWSTR distributionName, ULONG defaultUID,

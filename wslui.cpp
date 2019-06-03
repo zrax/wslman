@@ -17,6 +17,7 @@
 #include "wslui.h"
 
 #include "wslregistry.h"
+#include "wslsetuser.h"
 #include <QListWidget>
 #include <QToolBar>
 #include <QLabel>
@@ -125,11 +126,8 @@ WslUi::WslUi()
     auto lblKernelCmdLine = new QLabel(tr("&Kernel Command Line:"), this);
     m_kernelCmdLine = new QLineEdit(this);
     lblKernelCmdLine->setBuddy(m_kernelCmdLine);
-    auto editKernelCmdLine = new QToolButton(this);
-    editKernelCmdLine->setText(QStringLiteral("..."));
     distLayout->addWidget(lblKernelCmdLine, 9, 0);
     distLayout->addWidget(m_kernelCmdLine, 9, 1);
-    distLayout->addWidget(editKernelCmdLine, 9, 2);
 
     distLayout->addItem(new QSpacerItem(0, 20), 10, 0, 1, 2);
     auto lblDefaultEnv = new QLabel(tr("Default &Environment:"), this);
@@ -210,6 +208,7 @@ WslUi::WslUi()
         loadDistributions();
     });
 
+    connect(editDefaultUser, &QToolButton::clicked, this, &WslUi::chooseUser);
     connect(m_enableInterop, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
     connect(m_appendNTPath, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
     connect(m_enableDriveMounting, &QCheckBox::clicked, this, &WslUi::commitDistFlags);
@@ -345,12 +344,45 @@ void WslUi::distActivated(QListWidgetItem *item)
     }
 }
 
+void WslUi::chooseUser(bool)
+{
+    WslDistribution dist = getDistribution(m_distList->currentItem());
+    if (dist.isValid()) {
+        WslSetUser dialog(dist.name(), this);
+        dialog.setUID(dist.defaultUID());
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+
+        uint32_t uid = dialog.getUID();
+        if (uid == INVALID_UID)
+            return;
+
+        try {
+            auto rc = WslApi::ConfigureDistribution(dist.name().c_str(), uid, dist.flags());
+            if (FAILED(rc)) {
+                wchar_t msgbuf[512];
+                swprintf(msgbuf, 512, L"0x%08x", rc);
+                FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, rc,
+                               MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                               msgbuf, 512, nullptr);
+                QMessageBox::critical(this, QString::null,
+                        tr("Failed to set property: %1")
+                        .arg(QString::fromWCharArray(msgbuf)));
+            }
+        } catch (const std::runtime_error &err) {
+            QMessageBox::critical(this, QString::null,
+                    tr("Failed to set property: %1").arg(err.what()));
+        }
+        updateDistProperties(dist);
+    }
+}
+
 void WslUi::commitDistFlags(bool)
 {
     WslDistribution dist = getDistribution(m_distList->currentItem());
     if (dist.isValid()) {
         // Preserve any flags we don't know about...
-        int flags = dist.flags() & ~WslApi::DistributionFlags_KnownMask;
+        int flags = dist.flags() & ~WslApi::DistributionFlags_All;
         if (m_enableInterop->isChecked())
             flags |= WslApi::DistributionFlags_EnableInterop;
         if (m_appendNTPath->isChecked())
@@ -515,7 +547,7 @@ void WslUi::updateDistProperties(const WslDistribution &dist)
 {
     m_name->setText(QString::fromStdWString(dist.name()));
     m_version->setText(QString::number(dist.version()));
-    m_defaultUser->setText(tr("Unknown (%1)").arg(dist.defaultUID()));
+    m_defaultUser->setText(QString::number(dist.defaultUID()));
     m_location->setText(QString::fromStdWString(dist.path()));
     m_enableInterop->setChecked(dist.flags() & WslApi::DistributionFlags_EnableInterop);
     m_appendNTPath->setChecked(dist.flags() & WslApi::DistributionFlags_AppendNTPath);
