@@ -65,8 +65,6 @@ static QIcon pickDistIcon(const QString &name)
 WslUi::WslUi()
     : m_registry()
 {
-    setWindowTitle(tr("WSL Distribution Manager"));
-
     m_distList = new QListWidget(this);
     m_distList->setIconSize(QSize(32, 32));
     m_distList->setContextMenuPolicy(Qt::ActionsContextMenu);

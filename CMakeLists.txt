@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with wslman.  If not, see <http://www.gnu.org/licenses/>.
 
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.4)
 project(wslman)
 
 set(CMAKE_CXX_STANDARD 14)
@@ -37,6 +37,7 @@ target_sources(wslman PRIVATE
     wslui.cpp
     wslman.qrc
     wslman.rc
+    wslman.manifest
 )
 target_link_libraries(wslman PRIVATE Qt5::Core Qt5::Widgets Qt5::WinExtras)
 
@@ -50,5 +51,5 @@ endif()
 
 install(TARGETS wslman RUNTIME DESTINATION .)
 install(CODE "execute_process(COMMAND \"${Qt5_WINDEPLOYQT_EXECUTABLE}\"\
-    --no-angle --no-opengl-sw \"${CMAKE_INSTALL_PREFIX}\"\
+    --no-angle --no-opengl-sw \"${CMAKE_INSTALL_PREFIX}/wslman.exe\"\
 )")
