@@ -358,17 +358,7 @@ void WslUi::chooseUser(bool)
             return;
 
         try {
-            auto rc = WslApi::ConfigureDistribution(dist.name().c_str(), uid, dist.flags());
-            if (FAILED(rc)) {
-                wchar_t msgbuf[512];
-                swprintf(msgbuf, 512, L"0x%08x", rc);
-                FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, rc,
-                               MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                               msgbuf, 512, nullptr);
-                QMessageBox::critical(this, QString::null,
-                        tr("Failed to set property: %1")
-                        .arg(QString::fromWCharArray(msgbuf)));
-            }
+            dist.setDefaultUID(uid);
         } catch (const std::runtime_error &err) {
             QMessageBox::critical(this, QString::null,
                     tr("Failed to set property: %1").arg(err.what()));
