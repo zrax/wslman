@@ -2,11 +2,12 @@
 <RCC version="1.0">
     <qresource>
         <file>icons/terminal.ico</file>
+        <file>icons/document-edit.ico</file>
+        <file>icons/document-open.ico</file>
+        <file>icons/edit-delete.ico</file>
+        <file>icons/edit-download.ico</file>
+        <file>icons/list-add.ico</file>
         <file>icons/view-refresh.ico</file>
-
-        <file>icons/list-add.png</file>
-        <file>icons/document-edit.png</file>
-        <file>icons/edit-delete.png</file>
 
         <file>icons/dist-alpine.png</file>
         <file>icons/dist-arch.png</file>

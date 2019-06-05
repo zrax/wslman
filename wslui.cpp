@@ -18,6 +18,8 @@
 
 #include "wslregistry.h"
 #include "wslsetuser.h"
+#include "wslinstall.h"
+#include "wslutils.h"
 #include <QListWidget>
 #include <QToolBar>
 #include <QLabel>
@@ -29,9 +31,6 @@
 #include <QSplitter>
 #include <QGridLayout>
 #include <QMessageBox>
-#include <QtWin>
-#include <process.h>
-#include <atomic>
 
 enum {
     DistUuidRole = Qt::UserRole,
@@ -39,7 +38,7 @@ enum {
     EnvSavedKeyRole,
 };
 
-static QIcon pickDistIcon(const QString &name)
+QIcon WslUi::pickDistIcon(const QString &name)
 {
     if (name.contains(QLatin1String("Alpine"), Qt::CaseInsensitive))
         return QIcon(":/icons/dist-alpine.png");
@@ -142,10 +141,10 @@ WslUi::WslUi()
     envLayout->setContentsMargins(0, 0, 0, 0);
     distLayout->addWidget(envButtons, 12, 2);
 
-    m_envAdd = new QAction(QIcon(":/icons/list-add.png"), tr("Add"));
-    m_envEdit = new QAction(QIcon(":/icons/document-edit.png"), tr("Edit"));
+    m_envAdd = new QAction(QIcon(":/icons/list-add.ico"), tr("Add"));
+    m_envEdit = new QAction(QIcon(":/icons/document-edit.ico"), tr("Edit"));
     m_envEdit->setEnabled(false);
-    m_envDel = new QAction(QIcon(":/icons/edit-delete.png"), tr("Remove"));
+    m_envDel = new QAction(QIcon(":/icons/edit-delete.ico"), tr("Remove"));
     m_envDel->setEnabled(false);
     m_defaultEnvironment->addAction(m_envAdd);
     m_defaultEnvironment->addAction(m_envEdit);
@@ -178,6 +177,11 @@ WslUi::WslUi()
     m_openShell->setEnabled(false);
     m_setDefault = new QAction(tr("Set Default"), this);
     m_setDefault->setEnabled(false);
+    auto separator1 = new QAction(this);
+    separator1->setSeparator(true);
+    m_installDist = new QAction(QIcon(":/icons/edit-download.ico"), tr("Install..."), this);
+    auto separator2 = new QAction(this);
+    separator2->setSeparator(true);
     auto refreshDists = new QAction(QIcon(":/icons/view-refresh.ico"), tr("Refresh"), this);
 
     auto toolbar = addToolBar(tr("Show Toolbar"));
@@ -186,12 +190,15 @@ WslUi::WslUi()
     toolbar->setIconSize(QSize(32, 32));
     toolbar->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     toolbar->addAction(m_openShell);
-    QAction *actionSep1 = toolbar->addSeparator();
+    toolbar->addAction(m_installDist);
+    toolbar->addAction(separator2);
     toolbar->addAction(refreshDists);
 
     m_distList->addAction(m_openShell);
     m_distList->addAction(m_setDefault);
-    m_distList->addAction(actionSep1);
+    m_distList->addAction(separator1);
+    m_distList->addAction(m_installDist);
+    m_distList->addAction(separator2);
     m_distList->addAction(refreshDists);
 
     connect(m_distList, &QListWidget::currentItemChanged, this, &WslUi::distSelected);
@@ -201,6 +208,9 @@ WslUi::WslUi()
     });
     connect(m_setDefault, &QAction::triggered, this, [this](bool) {
         setCurrentDistAsDefault();
+    });
+    connect(m_installDist, &QAction::triggered, this, [this](bool) {
+        installDistribution();
     });
     connect(refreshDists, &QAction::triggered, this, [this](bool) {
         loadDistributions();
@@ -264,31 +274,9 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
     }
 }
 
-struct _startShell_Context
-{
-    std::wstring distName;
-    std::atomic<bool> shellTerminated = false;
-    QString errorMessage;
-    HICON distIconBig = nullptr;
-    HICON distIconSmall = nullptr;
-
-    // One ref for the UI thread and one for the _startShell thread
-    std::atomic<int> refs = 2;
-    void unref() {
-        if (--refs == 0)
-            delete this;
-    }
-
-    ~_startShell_Context()
-    {
-        DestroyIcon(distIconBig);
-        DestroyIcon(distIconSmall);
-    }
-};
-
 static unsigned _startShell(void *pvContext)
 {
-    auto context = reinterpret_cast<_startShell_Context *>(pvContext);
+    auto context = reinterpret_cast<WslConsoleContext *>(pvContext);
 
     DWORD exitCode;
     try {
@@ -308,36 +296,8 @@ void WslUi::distActivated(QListWidgetItem *item)
     WslDistribution dist = getDistribution(item);
     if (dist.isValid()) {
         AllocConsole();
-        SetConsoleTitleW(dist.name().c_str());
-
-        auto context = new _startShell_Context;
-        context->distName = dist.name();
-
-        const QIcon distIcon = item->icon();
-        context->distIconBig = QtWin::toHICON(distIcon.pixmap(32, 32));
-        context->distIconSmall = QtWin::toHICON(distIcon.pixmap(16, 16));
-        HWND hConsole = GetConsoleWindow();
-        SendMessageW(hConsole, WM_SETICON, ICON_BIG, (LPARAM)context->distIconBig);
-        SendMessageW(hConsole, WM_SETICON, ICON_SMALL, (LPARAM)context->distIconSmall);
-
-        unsigned threadId;
-        HANDLE th = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0,
-                            &_startShell, reinterpret_cast<void *>(context),
-                            0, &threadId));
-        CloseHandle(th);
-
-        // Detach from the console once the WSL process starts using it
-        DWORD processList[4];
-        DWORD processCount = 4;
-        for ( ;; ) {
-            DWORD activeProcs = GetConsoleProcessList(processList, processCount);
-            if (activeProcs > 1 || context->shellTerminated)
-                break;
-            Sleep(100);
-        }
-        if (!context->errorMessage.isEmpty())
-            QMessageBox::critical(this, QString::null, context->errorMessage);
-        context->unref();
+        auto context = WslConsoleContext::createConsole(dist.name(), item->icon());
+        context->startConsoleThread(this, &_startShell);
         FreeConsole();
     }
 }
@@ -455,6 +415,21 @@ void WslUi::deleteSelectedEnviron(bool)
         }
         updateDistProperties(dist);
     }
+}
+
+void WslUi::installDistribution()
+{
+    WslInstallDialog dialog;
+    for ( ;; ) {
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+
+        if (dialog.validate())
+            break;
+    }
+
+    dialog.performInstall();
+    loadDistributions();
 }
 
 void WslUi::loadDistributions()

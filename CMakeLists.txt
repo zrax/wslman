@@ -27,6 +27,8 @@ set(CMAKE_AUTORCC ON)
 
 add_executable(wslman WIN32 wslman.cpp)
 target_sources(wslman PRIVATE
+    wslinstall.h
+    wslinstall.cpp
     wslregistry.h
     wslregistry.cpp
     wslsetuser.h
@@ -35,6 +37,8 @@ target_sources(wslman PRIVATE
     wslwrap.cpp
     wslui.h
     wslui.cpp
+    wslutils.h
+    wslutils.cpp
     wslman.qrc
     wslman.rc
     wslman.manifest

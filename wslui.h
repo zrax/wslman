@@ -34,6 +34,8 @@ public:
     WslUi();
     ~WslUi();
 
+    static QIcon pickDistIcon(const QString &name);
+
 private slots:
     void distSelected(QListWidgetItem *current, QListWidgetItem *);
     void distActivated(QListWidgetItem *item);
@@ -43,6 +45,7 @@ private slots:
     void environSelected(QTreeWidgetItem *current, QTreeWidgetItem *);
     void environChanged(QTreeWidgetItem *item, int column);
     void deleteSelectedEnviron(bool);
+    void installDistribution();
     void loadDistributions();
     void setCurrentDistAsDefault();
 
@@ -65,11 +68,10 @@ private:
 
     QAction *m_openShell;
     QAction *m_setDefault;
+    QAction *m_installDist;
 
     QListWidgetItem *findDistByUuid(const QString &uuid);
     void updateDistProperties(const WslDistribution &dist);
 
     WslDistribution getDistribution(QListWidgetItem *item);
-
-    static QString getUsername(const WslDistribution &dist, uint32_t uid);
 };

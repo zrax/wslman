@@ -15,19 +15,25 @@
  */
 
 #include <QDialog>
+#include <QIcon>
 
 class QLineEdit;
-class WslDistribution;
+class QLabel;
 
-class WslSetUser : public QDialog
+class WslInstallDialog : public QDialog
 {
 public:
-    WslSetUser(const std::wstring &distName, QWidget *parent = nullptr);
+    WslInstallDialog(QWidget *parent = nullptr);
 
-    void setUID(uint32_t uid);
-    uint32_t getUID() const;
+    bool validate();
+    void performInstall();
 
 private:
-    std::wstring m_distName;
-    QLineEdit *m_userEntry;
+    QLineEdit *m_distName;
+    QIcon m_distIcon;
+    QLabel *m_distIconLabel;
+    QLineEdit *m_tarball;
+    QLineEdit *m_installPath;
+
+    void setupDistribution();
 };
