@@ -64,40 +64,28 @@ void WslConsoleContext::startConsoleThread(QWidget *parent, unsigned (*proc)(voi
     unref();
 }
 
-// (Ab)use unique_ptr to ensure handles get closed at function return
-inline std::unique_ptr<void, decltype(&CloseHandle)>
-makeHandleCloser(HANDLE handle)
-{
-    return {handle, &CloseHandle};
-}
-
 QString WslUtil::getUsername(const std::wstring &distName, uint32_t uid)
 {
-    HANDLE hStdoutRead, hStdoutWrite;
+    UniqueHandle hStdoutRead, hStdoutWrite;
     SECURITY_ATTRIBUTES secattr{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-    if (!CreatePipe(&hStdoutRead, &hStdoutWrite, &secattr, 0))
+    if (!CreatePipe(hStdoutRead.receive(), hStdoutWrite.receive(), &secattr, 0))
         return QString::null;
 
-    auto hcStdoutRead = makeHandleCloser(hStdoutRead);
-    auto hcStdoutWrite = makeHandleCloser(hStdoutWrite);
-
     auto cmd = QStringLiteral("/usr/bin/getent passwd %1").arg(uid);
-    HANDLE hProcess;
+    UniqueHandle hProcess;
     try {
         auto rc = WslApi::Launch(distName.c_str(), cmd.toStdWString().c_str(),
-                                 false, GetStdHandle(STD_INPUT_HANDLE), hStdoutWrite,
-                                 GetStdHandle(STD_ERROR_HANDLE), &hProcess);
+                                 false, GetStdHandle(STD_INPUT_HANDLE), hStdoutWrite.get(),
+                                 GetStdHandle(STD_ERROR_HANDLE), hProcess.receive());
         if (FAILED(rc))
             return QString::null;
     } catch (const std::runtime_error &) {
         return QString::null;
     }
 
-    auto hcProcess = makeHandleCloser(hProcess);
-
-    WaitForSingleObject(hProcess, INFINITE);
+    WaitForSingleObject(hProcess.get(), INFINITE);
     DWORD exitCode;
-    if (!GetExitCodeProcess(hProcess, &exitCode))
+    if (!GetExitCodeProcess(hProcess.get(), &exitCode))
         return QString::null;
     if (exitCode != 0) {
         // TODO: Try a different approach or path if applicable
@@ -106,7 +94,7 @@ QString WslUtil::getUsername(const std::wstring &distName, uint32_t uid)
 
     char buffer[512];
     DWORD nRead;
-    if (!ReadFile(hStdoutRead, buffer, sizeof(buffer) - 1, &nRead, nullptr))
+    if (!ReadFile(hStdoutRead.get(), buffer, sizeof(buffer) - 1, &nRead, nullptr))
         return QString::null;
 
     buffer[nRead] = 0;
@@ -119,38 +107,33 @@ QString WslUtil::getUsername(const std::wstring &distName, uint32_t uid)
 
 uint32_t WslUtil::getUid(const std::wstring &distName, const QString &username)
 {
-    HANDLE hStdoutRead, hStdoutWrite;
+    UniqueHandle hStdoutRead, hStdoutWrite;
     SECURITY_ATTRIBUTES secattr{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-    if (!CreatePipe(&hStdoutRead, &hStdoutWrite, &secattr, 0))
+    if (!CreatePipe(hStdoutRead.receive(), hStdoutWrite.receive(), &secattr, 0))
         return INVALID_UID;
-
-    auto hcStdoutRead = makeHandleCloser(hStdoutRead);
-    auto hcStdoutWrite = makeHandleCloser(hStdoutWrite);
 
     QString cleanUser = username;
     cleanUser.replace(QLatin1Char('\''), QLatin1String("'\\''"));
     auto cmd = QStringLiteral("/usr/bin/id -u '%1'").arg(cleanUser);
-    HANDLE hProcess;
+    UniqueHandle hProcess;
     try {
         auto rc = WslApi::Launch(distName.c_str(), cmd.toStdWString().c_str(),
-                                 false, GetStdHandle(STD_INPUT_HANDLE), hStdoutWrite,
-                                 GetStdHandle(STD_ERROR_HANDLE), &hProcess);
+                                 false, GetStdHandle(STD_INPUT_HANDLE), hStdoutWrite.get(),
+                                 GetStdHandle(STD_ERROR_HANDLE), hProcess.receive());
         if (FAILED(rc))
             return INVALID_UID;
     } catch (const std::runtime_error &) {
         return INVALID_UID;
     }
 
-    auto hcProcess = makeHandleCloser(hProcess);
-
-    WaitForSingleObject(hProcess, INFINITE);
+    WaitForSingleObject(hProcess.get(), INFINITE);
     DWORD exitCode;
-    if (!GetExitCodeProcess(hProcess, &exitCode) || exitCode != 0)
+    if (!GetExitCodeProcess(hProcess.get(), &exitCode) || exitCode != 0)
         return INVALID_UID;
 
     char buffer[512];
     DWORD nRead;
-    if (!ReadFile(hStdoutRead, buffer, sizeof(buffer) - 1, &nRead, nullptr))
+    if (!ReadFile(hStdoutRead.get(), buffer, sizeof(buffer) - 1, &nRead, nullptr))
         return INVALID_UID;
 
     buffer[nRead] = 0;

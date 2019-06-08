@@ -16,6 +16,8 @@
 
 #include "wslregistry.h"
 
+#include "wslutils.h"
+
 #define LXSS_ROOT_PATH L"Software\\Microsoft\\Windows\\CurrentVersion\\Lxss"
 
 static std::wstring winregGetWstring(const std::wstring &path, LPCWSTR name)
@@ -183,7 +185,7 @@ void WslDistribution::addEnvironment(const std::wstring &key, const std::wstring
     const std::wstring keySearch = key + L"=";
     bool found = false;
     for (auto ei = newEnv.begin(); ei != newEnv.end(); ++ei) {
-        if (ei->rfind(keySearch, 0) == 0) {
+        if (starts_with(*ei, keySearch)) {
             *ei = keySearch + value;
             found = true;
             break;
@@ -201,7 +203,7 @@ void WslDistribution::delEnvironment(const std::wstring &key)
     const std::wstring keySearch = key + L"=";
     auto ei = newEnv.begin();
     while (ei != newEnv.end()) {
-        if (ei->rfind(keySearch, 0) == 0)
+        if (starts_with(*ei, keySearch))
             ei = newEnv.erase(ei);
         else
             ++ei;

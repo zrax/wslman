@@ -163,10 +163,10 @@ bool WslInstallDialog::validate()
 static QString wslError(const QString &prefix, HRESULT rc)
 {
     wchar_t buffer[512];
-    swprintf(buffer, 512, L"0x%08x", rc);
+    swprintf(buffer, std::size(buffer), L"0x%08x", rc);
     FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, rc,
                    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                   buffer, 512, nullptr);
+                   buffer, static_cast<DWORD>(std::size(buffer)), nullptr);
 
     return QStringLiteral("%1: %2").arg(prefix).arg(QString::fromWCharArray(buffer));
 }

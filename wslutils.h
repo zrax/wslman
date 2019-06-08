@@ -53,8 +53,87 @@ struct WslConsoleContext
     void startConsoleThread(QWidget *parent, unsigned (*proc)(void *));
 };
 
+class UniqueHandle
+{
+public:
+    UniqueHandle() noexcept : m_handle() { }
+    UniqueHandle(std::nullptr_t) noexcept : m_handle() { }
+    UniqueHandle(HANDLE h) noexcept : m_handle(h) { }
+
+    UniqueHandle(UniqueHandle &&uh) noexcept
+        : m_handle(uh.m_handle)
+    {
+        uh.m_handle = nullptr;
+    }
+
+    bool isValid() const noexcept
+    {
+        return (m_handle && m_handle != INVALID_HANDLE_VALUE);
+    }
+
+    UniqueHandle &operator=(std::nullptr_t) noexcept
+    {
+        release();
+        return *this;
+    }
+
+    UniqueHandle &operator=(UniqueHandle &&uh) noexcept
+    {
+        if (isValid())
+            CloseHandle(m_handle);
+        m_handle = uh.m_handle;
+        uh.m_handle = nullptr;
+        return *this;
+    }
+
+    UniqueHandle(const UniqueHandle &) = delete;
+    UniqueHandle &operator=(const UniqueHandle &) = delete;
+
+    ~UniqueHandle() noexcept
+    {
+        if (isValid())
+            CloseHandle(m_handle);
+    }
+
+    void release() noexcept
+    {
+        if (isValid()) {
+            CloseHandle(m_handle);
+            m_handle = nullptr;
+        }
+    }
+
+    HANDLE get() const noexcept { return m_handle; }
+
+    // Unlike unique_ptr, we can use this to receive a handle from an API call...
+    HANDLE *receive() noexcept
+    {
+        release();
+        return &m_handle;
+    }
+
+    bool operator==(HANDLE h) const noexcept { return m_handle == h; }
+    bool operator!=(HANDLE h) const noexcept { return m_handle != h; }
+    bool operator==(UniqueHandle uh) const noexcept { return m_handle == uh.m_handle; }
+    bool operator!=(UniqueHandle uh) const noexcept { return m_handle != uh.m_handle; }
+
+private:
+    HANDLE m_handle;
+};
+
 namespace WslUtil
 {
     QString getUsername(const std::wstring &distName, uint32_t uid);
     uint32_t getUid(const std::wstring &distName, const QString &username);
+}
+
+// TODO: Use C++20
+inline bool starts_with(const std::wstring_view &str, const wchar_t *prefix)
+{
+    return str.rfind(prefix, 0) == 0;
+}
+
+inline bool starts_with(const std::wstring_view &str, const std::wstring &prefix)
+{
+    return str.rfind(prefix, 0) == 0;
 }
