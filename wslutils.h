@@ -127,6 +127,9 @@ namespace WslUtil
 {
     QString getUsername(const std::wstring &distName, uint32_t uid);
     uint32_t getUid(const std::wstring &distName, const QString &username);
+
+    std::wstring fromUtf8(const std::string_view &utf8);
+    std::string toUtf8(const std::wstring_view &wide);
 }
 
 // TODO: Use C++20

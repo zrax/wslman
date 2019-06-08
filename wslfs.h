@@ -20,6 +20,16 @@
 
 // NOTE: This is based on the work of LxRunOffline's WSL filesystem support
 
+/* File type modes compatible with Linux */
+#define LX_IFMT     0170000
+#define LX_IFDIR    0040000
+#define LX_IFCHR    0020000
+#define LX_IFBLK    0060000
+#define LX_IFREG    0100000
+#define LX_IFIFO    0010000
+#define LX_IFLNK    0120000
+#define LX_IFSOCK   0140000
+
 struct WslAttr
 {
     uint16_t flags;
@@ -67,13 +77,18 @@ public:
     std::wstring rootPath() const { return m_rootPath; }
     Format format() const { return m_format; }
 
-    std::wstring path(const std::wstring_view &unixPath) const;
+    std::wstring path(const std::string_view &unixPath) const;
 
     WslAttr getAttr(HANDLE hFile) const;
     void setAttr(HANDLE hFile, const WslAttr &attr) const;
 
-    UniqueHandle createFile(const std::wstring &unixPath, const WslAttr &attr) const;
-    UniqueHandle openFile(const std::wstring &unixPath) const;
+    UniqueHandle createFile(const std::string_view &unixPath, const WslAttr &attr) const;
+    UniqueHandle openFile(const std::string_view &unixPath) const;
+
+    bool createSymlink(const std::string_view &unixPath,
+                       const std::string_view &target, const WslAttr &attr) const;
+    bool createHardLink(const std::string_view &unixPath,
+                        const std::string_view &unixTarget) const;
 
 private:
     Format m_format;

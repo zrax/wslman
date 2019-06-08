@@ -77,7 +77,7 @@ static std::list<UserInfo> readPasswdFile(const std::wstring &distName)
     UniqueHandle hPasswd;
     try {
         WslFs rootfs(dist.rootfsPath());
-        hPasswd = rootfs.openFile(L"/etc/passwd");
+        hPasswd = rootfs.openFile("/etc/passwd");
         if (hPasswd == INVALID_HANDLE_VALUE)
             return {};
     } catch (const std::runtime_error &) {
@@ -155,4 +155,32 @@ uint32_t WslUtil::getUid(const std::wstring &distName, const QString &username)
             return std::get<1>(user);
     }
     return INVALID_UID;
+}
+
+std::wstring WslUtil::fromUtf8(const std::string_view &utf8)
+{
+    std::wstring result;
+    const int u8size = static_cast<int>(utf8.size());
+    const int wsize = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), u8size, nullptr, 0);
+    if (wsize == 0)
+        return result;
+
+    result.resize(wsize);
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), u8size, result.data(), wsize);
+    return result;
+}
+
+std::string WslUtil::toUtf8(const std::wstring_view &wide)
+{
+    std::string result;
+    const int wsize = static_cast<int>(wide.size());
+    const int u8size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), wsize,
+                                           nullptr, 0, nullptr, nullptr);
+    if (u8size == 0)
+        return result;
+
+    result.resize(u8size);
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), wsize,
+                        result.data(), u8size, nullptr, nullptr);
+    return result;
 }

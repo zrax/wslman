@@ -17,6 +17,7 @@
 #include "wslfs.h"
 
 #include <winternl.h>
+#include <winioctl.h>
 
 // NOTE: This is based on the work of LxRunOffline's WSL filesystem support
 
@@ -56,6 +57,8 @@ extern "C" {
         _In_ FILE_INFORMATION_CLASS FileInformationClass
     );
 }
+
+#define IO_REPARSE_TAG_LX_SYMLINK (0xA000001DL)
 
 template <size_t NameLength>
 struct FILE_GET_EA_INFORMATION
@@ -97,6 +100,14 @@ struct FILE_FULL_EA_INFORMATION
     {
         memcpy(AttrBuffer, &value, sizeof(AttrType));
     }
+};
+
+struct REPARSE_DATA_BUFFER
+{
+    ULONG   ReparseTag;
+    USHORT  ReparseDataLength;
+    USHORT  Reserved;
+    UCHAR   DataBuffer[1];
 };
 
 class InvalidAttribute : public std::runtime_error
@@ -223,18 +234,20 @@ static std::wstring encodePath(WslFs::Format format, const std::wstring_view &pa
     return result;
 }
 
-std::wstring WslFs::path(const std::wstring_view &unixPath) const
+std::wstring WslFs::path(const std::string_view &unixPath) const
 {
+    std::wstring unixWide = WslUtil::fromUtf8(unixPath);
+
     std::wstring result;
-    result.reserve(m_rootPath.size() + unixPath.size() + 1);
+    result.reserve(m_rootPath.size() + unixWide.size() + 1);
     result.append(m_rootPath);
     if (result.back() != L'\\')
         result.push_back(L'\\');
-    if (!unixPath.empty()) {
-        if (unixPath.front() == L'/')
-            result.append(encodePath(m_format, unixPath.substr(1)));
+    if (!unixWide.empty()) {
+        if (unixWide.front() == L'/')
+            result.append(encodePath(m_format, std::wstring_view(unixWide).substr(1)));
         else
-            result.append(encodePath(m_format, unixPath));
+            result.append(encodePath(m_format, unixWide));
     }
     return result;
 }
@@ -306,8 +319,12 @@ void WslFs::setAttr(HANDLE hFile, const WslAttr &attr) const
     }
 }
 
-UniqueHandle WslFs::createFile(const std::wstring &unixPath, const WslAttr &attr) const
+UniqueHandle WslFs::createFile(const std::string_view &unixPath, const WslAttr &attr) const
 {
+    const uint32_t ftype = attr.mode & LX_IFMT;
+    if (ftype == 0 || ftype == LX_IFDIR)
+        throw std::invalid_argument("Invalid file mode");
+
     UniqueHandle hFile = CreateFileW(path(unixPath).c_str(), MAXIMUM_ALLOWED,
                                      FILE_SHARE_READ, nullptr, CREATE_NEW,
                                      FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
@@ -317,9 +334,56 @@ UniqueHandle WslFs::createFile(const std::wstring &unixPath, const WslAttr &attr
     return hFile;
 }
 
-UniqueHandle WslFs::openFile(const std::wstring &unixPath) const
+UniqueHandle WslFs::openFile(const std::string_view &unixPath) const
 {
     return CreateFileW(path(unixPath).c_str(), MAXIMUM_ALLOWED,
                        FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                        FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+}
+
+bool WslFs::createSymlink(const std::string_view &unixPath,
+                          const std::string_view &target, const WslAttr &attr) const
+{
+    if ((attr.mode & LX_IFMT) != LX_IFLNK)
+        throw std::invalid_argument("Invalid symlink file mode");
+
+    UniqueHandle hFile = createFile(unixPath, attr);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return false;
+
+    switch (m_format) {
+    case WSLv1:
+        {
+            DWORD nWritten;
+            return WriteFile(hFile.get(), target.data(), static_cast<DWORD>(target.size()),
+                             &nWritten, nullptr);
+        }
+    case WSLv2:
+        {
+            size_t dataLen = sizeof(uint32_t) + target.size();
+            auto bufLen = static_cast<DWORD>(offsetof(REPARSE_DATA_BUFFER, DataBuffer) + dataLen);
+            auto buffer = std::make_unique<std::byte[]>(bufLen);
+            auto reparse = reinterpret_cast<REPARSE_DATA_BUFFER *>(buffer.get());
+            reparse->ReparseTag = IO_REPARSE_TAG_LX_SYMLINK;
+            reparse->ReparseDataLength = static_cast<USHORT>(dataLen);
+            reparse->Reserved = 0;
+            uint32_t data = 2;      // TODO: What is this?
+            memcpy(reparse->DataBuffer, &data, sizeof(data));
+            memcpy(reparse->DataBuffer + sizeof(data), target.data(), target.size());
+
+            DWORD nReturned;
+            return DeviceIoControl(hFile.get(), FSCTL_SET_REPARSE_POINT, reparse,
+                                   bufLen, nullptr, 0, &nReturned, nullptr);
+        }
+    default:
+        throw std::runtime_error("Cannot create a symlink in an invalid WSL Root");
+    }
+}
+
+bool WslFs::createHardLink(const std::string_view &unixPath,
+                           const std::string_view &unixTarget) const
+{
+    std::wstring winPath = path(unixPath);
+    std::wstring winTarget = path(unixTarget);
+    return CreateHardLinkW(winPath.c_str(), winTarget.c_str(), nullptr);
 }
