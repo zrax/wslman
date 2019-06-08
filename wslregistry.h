@@ -14,6 +14,8 @@
  * along with wslman.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#pragma once
+
 #include "wslwrap.h"
 
 #include <string>
@@ -38,6 +40,8 @@ public:
     const std::wstring &path() const { return m_path; }
     const std::wstring &kernelCmdLine() const { return m_kernelCmdLine; }
     const std::wstring &packageFamilyName() const { return m_packageFamilyName; }
+
+    std::wstring rootfsPath() const;
 
     void setName(const std::wstring &name);
     void setVersion(uint32_t version);

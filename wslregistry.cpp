@@ -134,6 +134,18 @@ WslDistribution::WslDistribution()
     memset(&m_uuid, 0, sizeof(m_uuid));
 }
 
+std::wstring WslDistribution::rootfsPath() const
+{
+    if (m_path.empty())
+        return m_path;
+
+    std::wstring path = m_path;
+    if (m_path.back() == L'\\')
+        return m_path + L"rootfs";
+    else
+        return m_path + L"\\rootfs";
+}
+
 void WslDistribution::setName(const std::wstring &name)
 {
     if (!isValid())

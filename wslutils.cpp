@@ -16,7 +16,8 @@
 
 #include "wslutils.h"
 
-#include "wslwrap.h"
+#include "wslregistry.h"
+#include "wslfs.h"
 #include <QMessageBox>
 #include <QIcon>
 #include <QtWin>
@@ -64,81 +65,94 @@ void WslConsoleContext::startConsoleThread(QWidget *parent, unsigned (*proc)(voi
     unref();
 }
 
+typedef std::tuple<std::string, uint32_t, uint32_t> UserInfo;
+
+static std::list<UserInfo> readPasswdFile(const std::wstring &distName)
+{
+    WslRegistry registry;
+    WslDistribution dist = registry.findDistByName(distName);
+    if (!dist.isValid())
+        return {};
+
+    UniqueHandle hPasswd;
+    try {
+        WslFs rootfs(dist.rootfsPath());
+        hPasswd = rootfs.openFile(L"/etc/passwd");
+        if (hPasswd == INVALID_HANDLE_VALUE)
+            return {};
+    } catch (const std::runtime_error &) {
+        return {};
+    }
+
+    std::string content;
+    for ( ;; ) {
+        char buffer[1024];
+        DWORD nRead = 0;
+        if (!ReadFile(hPasswd.get(), buffer, static_cast<DWORD>(std::size(buffer)),
+                      &nRead, nullptr) || nRead == 0) {
+            break;
+        }
+        content += std::string_view(buffer, nRead);
+    }
+
+    std::list<UserInfo> result;
+    size_t start = 0;
+    for ( ;; ) {
+        size_t end = content.find(':', start);
+        if (end == content.npos)
+            break;
+        std::string_view username(content.c_str() + start, end - start);
+        start = end + 1;
+
+        // Password hash
+        end = content.find(':', start);
+        if (end == content.npos)
+            break;
+        start = end + 1;
+
+        // UID
+        uint32_t uid = static_cast<uint32_t>(std::strtoul(content.c_str() + start, nullptr, 10));
+        end = content.find(':', start);
+        if (end == content.npos)
+            break;
+        start = end + 1;
+
+        // GID
+        uint32_t gid = static_cast<uint32_t>(std::strtoul(content.c_str() + start, nullptr, 10));
+        end = content.find(':', start);
+        if (end == content.npos)
+            break;
+        start = end + 1;
+
+        result.emplace_back(username, uid, gid);
+
+        // Advance to next line
+        end = content.find('\n', start);
+        if (end == content.npos)
+            break;
+        start = end + 1;
+    }
+
+    return result;
+}
+
 QString WslUtil::getUsername(const std::wstring &distName, uint32_t uid)
 {
-    UniqueHandle hStdoutRead, hStdoutWrite;
-    SECURITY_ATTRIBUTES secattr{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-    if (!CreatePipe(hStdoutRead.receive(), hStdoutWrite.receive(), &secattr, 0))
-        return QString::null;
-
-    auto cmd = QStringLiteral("/usr/bin/getent passwd %1").arg(uid);
-    UniqueHandle hProcess;
-    try {
-        auto rc = WslApi::Launch(distName.c_str(), cmd.toStdWString().c_str(),
-                                 false, GetStdHandle(STD_INPUT_HANDLE), hStdoutWrite.get(),
-                                 GetStdHandle(STD_ERROR_HANDLE), hProcess.receive());
-        if (FAILED(rc))
-            return QString::null;
-    } catch (const std::runtime_error &) {
-        return QString::null;
+    auto passwd = readPasswdFile(distName);
+    for (const auto &user : passwd) {
+        if (std::get<1>(user) == uid)
+            return QString::fromStdString(std::get<0>(user));
     }
-
-    WaitForSingleObject(hProcess.get(), INFINITE);
-    DWORD exitCode;
-    if (!GetExitCodeProcess(hProcess.get(), &exitCode))
-        return QString::null;
-    if (exitCode != 0) {
-        // TODO: Try a different approach or path if applicable
-        return QString::null;
-    }
-
-    char buffer[512];
-    DWORD nRead;
-    if (!ReadFile(hStdoutRead.get(), buffer, sizeof(buffer) - 1, &nRead, nullptr))
-        return QString::null;
-
-    buffer[nRead] = 0;
-    auto result = QString::fromUtf8(buffer);
-    int end = result.indexOf(QLatin1Char(':'));
-    if (end < 0)
-        return QString::null;
-    return result.left(end);
+    return QString::null;
 }
 
 uint32_t WslUtil::getUid(const std::wstring &distName, const QString &username)
 {
-    UniqueHandle hStdoutRead, hStdoutWrite;
-    SECURITY_ATTRIBUTES secattr{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-    if (!CreatePipe(hStdoutRead.receive(), hStdoutWrite.receive(), &secattr, 0))
-        return INVALID_UID;
-
-    QString cleanUser = username;
-    cleanUser.replace(QLatin1Char('\''), QLatin1String("'\\''"));
-    auto cmd = QStringLiteral("/usr/bin/id -u '%1'").arg(cleanUser);
-    UniqueHandle hProcess;
-    try {
-        auto rc = WslApi::Launch(distName.c_str(), cmd.toStdWString().c_str(),
-                                 false, GetStdHandle(STD_INPUT_HANDLE), hStdoutWrite.get(),
-                                 GetStdHandle(STD_ERROR_HANDLE), hProcess.receive());
-        if (FAILED(rc))
-            return INVALID_UID;
-    } catch (const std::runtime_error &) {
-        return INVALID_UID;
+    auto passwd = readPasswdFile(distName);
+    const std::string u8Username = username.toStdString();
+    for (const auto &user : passwd) {
+        if (std::get<0>(user) == u8Username)
+            return std::get<1>(user);
     }
-
-    WaitForSingleObject(hProcess.get(), INFINITE);
-    DWORD exitCode;
-    if (!GetExitCodeProcess(hProcess.get(), &exitCode) || exitCode != 0)
-        return INVALID_UID;
-
-    char buffer[512];
-    DWORD nRead;
-    if (!ReadFile(hStdoutRead.get(), buffer, sizeof(buffer) - 1, &nRead, nullptr))
-        return INVALID_UID;
-
-    buffer[nRead] = 0;
-    auto result = QString::fromUtf8(buffer);
-    bool ok;
-    uint uid = result.toUInt(&ok, 10);
-    return ok ? uid : INVALID_UID;
+    return INVALID_UID;
 }

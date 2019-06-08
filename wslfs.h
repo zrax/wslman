@@ -14,6 +14,8 @@
  * along with wslman.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#pragma once
+
 #include "wslutils.h"
 
 // NOTE: This is based on the work of LxRunOffline's WSL filesystem support

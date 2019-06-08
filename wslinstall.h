@@ -14,6 +14,8 @@
  * along with wslman.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#pragma once
+
 #include <QDialog>
 #include <QIcon>
 

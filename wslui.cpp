@@ -510,7 +510,9 @@ void WslUi::updateDistProperties(const WslDistribution &dist)
 {
     m_name->setText(QString::fromStdWString(dist.name()));
     m_version->setText(QString::number(dist.version()));
-    m_defaultUser->setText(QString::number(dist.defaultUID()));
+    m_defaultUser->setText(QStringLiteral("%1 (%2)")
+                           .arg(WslUtil::getUsername(dist.name(), dist.defaultUID()))
+                           .arg(QString::number(dist.defaultUID())));
     m_location->setText(QString::fromStdWString(dist.path()));
     m_enableInterop->setChecked(dist.flags() & WslApi::DistributionFlags_EnableInterop);
     m_appendNTPath->setChecked(dist.flags() & WslApi::DistributionFlags_AppendNTPath);
