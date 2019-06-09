@@ -20,6 +20,7 @@
 #include "wslsetuser.h"
 #include "wslinstall.h"
 #include "wslutils.h"
+#include "wslfs.h"
 #include <QListWidget>
 #include <QToolBar>
 #include <QLabel>
@@ -75,24 +76,30 @@ WslUi::WslUi()
     m_distDetails->setEnabled(false);
     auto distLayout = new QGridLayout(m_distDetails);
     distLayout->setContentsMargins(5, 5, 5, 5);
+    int distRow = -1;
 
     auto lblName = new QLabel(tr("Name:"), this);
     m_name = new QLabel(this);
-    distLayout->addWidget(lblName, 0, 0);
-    distLayout->addWidget(m_name, 0, 1);
+    distLayout->addWidget(lblName, ++distRow, 0);
+    distLayout->addWidget(m_name, distRow, 1);
 
     auto lblVersion = new QLabel(tr("Version:"), this);
     m_version = new QLabel(this);
-    distLayout->addWidget(lblVersion, 1, 0);
-    distLayout->addWidget(m_version, 1, 1);
+    distLayout->addWidget(lblVersion, ++distRow, 0);
+    distLayout->addWidget(m_version, distRow, 1);
 
-    distLayout->addItem(new QSpacerItem(0, 10), 2, 0, 1, 2);
+    auto lblFsType = new QLabel(tr("Filesystem:"), this);
+    m_fsType = new QLabel(this);
+    distLayout->addWidget(lblFsType, ++distRow, 0);
+    distLayout->addWidget(m_fsType, distRow, 1);
+
+    distLayout->addItem(new QSpacerItem(0, 10), ++distRow, 0, 1, 2);
     auto lblDefaultUser = new QLabel(tr("Default &User:"), this);
     auto userContainer = new QWidget(this);
     auto userLayout = new QHBoxLayout(userContainer);
     userLayout->setContentsMargins(0, 0, 0, 0);
-    distLayout->addWidget(lblDefaultUser, 3, 0);
-    distLayout->addWidget(userContainer, 3, 1, 1, 2);
+    distLayout->addWidget(lblDefaultUser, ++distRow, 0);
+    distLayout->addWidget(userContainer, distRow, 1, 1, 2);
 
     m_defaultUser = new QLabel(userContainer);
     auto editDefaultUser = new QToolButton(userContainer);
@@ -106,40 +113,40 @@ WslUi::WslUi()
     m_location = new QLineEdit(this);
     m_location->setReadOnly(true);
     lblLocation->setBuddy(m_location);
-    distLayout->addWidget(lblLocation, 4, 0);
-    distLayout->addWidget(m_location, 4, 1);
+    distLayout->addWidget(lblLocation, ++distRow, 0);
+    distLayout->addWidget(m_location, distRow, 1);
 
     auto lblFeatures = new QLabel(tr("&Features:"), this);
     m_enableInterop = new QCheckBox(tr("Allow executing Windows applications"), this);
     m_appendNTPath = new QCheckBox(tr("Add Windows PATH to environment"));
     m_enableDriveMounting = new QCheckBox(tr("Auto-mount Windows drives"));
     lblFeatures->setBuddy(m_enableInterop);
-    distLayout->addWidget(lblFeatures, 5, 0);
-    distLayout->addWidget(m_enableInterop, 5, 1);
-    distLayout->addWidget(m_appendNTPath, 6, 1);
-    distLayout->addWidget(m_enableDriveMounting, 7, 1);
+    distLayout->addWidget(lblFeatures, ++distRow, 0);
+    distLayout->addWidget(m_enableInterop, distRow, 1);
+    distLayout->addWidget(m_appendNTPath, ++distRow, 1);
+    distLayout->addWidget(m_enableDriveMounting, ++distRow, 1);
 
-    distLayout->addItem(new QSpacerItem(0, 10), 8, 0, 1, 2);
+    distLayout->addItem(new QSpacerItem(0, 10), ++distRow, 0, 1, 2);
     auto lblKernelCmdLine = new QLabel(tr("&Kernel Command Line:"), this);
     m_kernelCmdLine = new QLineEdit(this);
     lblKernelCmdLine->setBuddy(m_kernelCmdLine);
-    distLayout->addWidget(lblKernelCmdLine, 9, 0);
-    distLayout->addWidget(m_kernelCmdLine, 9, 1);
+    distLayout->addWidget(lblKernelCmdLine, ++distRow, 0);
+    distLayout->addWidget(m_kernelCmdLine, distRow, 1);
 
-    distLayout->addItem(new QSpacerItem(0, 20), 10, 0, 1, 2);
+    distLayout->addItem(new QSpacerItem(0, 20), ++distRow, 0, 1, 2);
     auto lblDefaultEnv = new QLabel(tr("Default &Environment:"), this);
     m_defaultEnvironment = new QTreeWidget(this);
     m_defaultEnvironment->setHeaderLabels(QStringList{tr("Environment"), tr("Value")});
     m_defaultEnvironment->setRootIsDecorated(false);
     m_defaultEnvironment->setContextMenuPolicy(Qt::ActionsContextMenu);
     lblDefaultEnv->setBuddy(m_defaultEnvironment);
-    distLayout->addWidget(lblDefaultEnv, 11, 0, 1, 2);
-    distLayout->addWidget(m_defaultEnvironment, 12, 0, 1, 2);
+    distLayout->addWidget(lblDefaultEnv, ++distRow, 0, 1, 2);
+    distLayout->addWidget(m_defaultEnvironment, ++distRow, 0, 1, 2);
 
     auto envButtons = new QWidget(this);
     auto envLayout = new QVBoxLayout(envButtons);
     envLayout->setContentsMargins(0, 0, 0, 0);
-    distLayout->addWidget(envButtons, 12, 2);
+    distLayout->addWidget(envButtons, distRow, 2);
 
     m_envAdd = new QAction(QIcon(":/icons/list-add.ico"), tr("Add"));
     m_envEdit = new QAction(QIcon(":/icons/document-edit.ico"), tr("Edit"));
@@ -253,6 +260,7 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
 {
     m_name->setText(QString::null);
     m_version->setText(QString::null);
+    m_fsType->setText(QString::null);
     m_defaultUser->setText(QString::null);
     m_location->setText(QString::null);
     m_enableInterop->setChecked(false);
@@ -510,6 +518,17 @@ void WslUi::updateDistProperties(const WslDistribution &dist)
 {
     m_name->setText(QString::fromStdWString(dist.name()));
     m_version->setText(QString::number(dist.version()));
+
+    WslFs rootfs(dist.rootfsPath());
+    switch (rootfs.format()) {
+    case WslFs::LxFsFormat:
+        m_fsType->setText(tr("LxFs"));
+        break;
+    case WslFs::WslFsFormat:
+        m_fsType->setText(tr("WslFs (Windows 1809+)"));
+        break;
+    }
+
     m_defaultUser->setText(QStringLiteral("%1 (%2)")
                            .arg(WslUtil::getUsername(dist.name(), dist.defaultUID()))
                            .arg(QString::number(dist.defaultUID())));

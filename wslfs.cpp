@@ -174,17 +174,17 @@ static WslFs::Format detectFormat(const std::wstring &path)
                                      FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                      FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (hFile == INVALID_HANDLE_VALUE)
-        return WslFs::Invalid;
+        return WslFs::InvalidFormat;
 
     try {
         (void)getNtExAttr<uint32_t>(hFile.get(), "$LXUID");
-        return WslFs::WSLv2;
+        return WslFs::WslFsFormat;
     } catch (const InvalidAttribute &) {
         try {
             (void)getNtExAttr<WslAttr>(hFile.get(), "LXATTRB");
-            return WslFs::WSLv1;
+            return WslFs::LxFsFormat;
         } catch (const InvalidAttribute &) {
-            return WslFs::Invalid;
+            return WslFs::InvalidFormat;
         }
     }
 }
@@ -202,13 +202,13 @@ WslFs::WslFs(const std::wstring &path)
 static std::wstring encodeChar(WslFs::Format format, wchar_t ch)
 {
     switch (format) {
-    case WslFs::WSLv1:
+    case WslFs::LxFsFormat:
         {
             wchar_t buffer[8];
             swprintf(buffer, std::size(buffer), L"#%04X", ch);
             return buffer;
         }
-    case WslFs::WSLv2:
+    case WslFs::WslFsFormat:
         return std::wstring(1, ch | 0xf000);
     default:
         return std::wstring(1, ch);
@@ -272,9 +272,9 @@ static uint64_t fileTimeToUnix(const LARGE_INTEGER &fileTime, uint32_t &nsec)
 WslAttr WslFs::getAttr(HANDLE hFile) const
 {
     switch (m_format) {
-    case WSLv1:
+    case LxFsFormat:
         return getNtExAttr<WslAttr>(hFile, "LXATTRB");
-    case WSLv2:
+    case WslFsFormat:
         {
             WslAttr attr;
             attr.uid = getNtExAttr<uint32_t>(hFile, "$LXUID");
@@ -296,10 +296,10 @@ WslAttr WslFs::getAttr(HANDLE hFile) const
 void WslFs::setAttr(HANDLE hFile, const WslAttr &attr) const
 {
     switch (m_format) {
-    case WSLv1:
+    case LxFsFormat:
         setNtExAttr(hFile, "LXATTRB", attr);
         break;
-    case WSLv2:
+    case WslFsFormat:
         {
             setNtExAttr(hFile, "$LXUID", attr.uid);
             setNtExAttr(hFile, "$LXGID", attr.gid);
@@ -352,13 +352,13 @@ bool WslFs::createSymlink(const std::string_view &unixPath,
         return false;
 
     switch (m_format) {
-    case WSLv1:
+    case LxFsFormat:
         {
             DWORD nWritten;
             return WriteFile(hFile.get(), target.data(), static_cast<DWORD>(target.size()),
                              &nWritten, nullptr);
         }
-    case WSLv2:
+    case WslFsFormat:
         {
             size_t dataLen = sizeof(uint32_t) + target.size();
             auto bufLen = static_cast<DWORD>(offsetof(REPARSE_DATA_BUFFER, DataBuffer) + dataLen);

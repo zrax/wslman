@@ -67,9 +67,9 @@ class WslFs
 public:
     enum Format
     {
-        Invalid = 0,
-        WSLv1 = 1,
-        WSLv2 = 2,
+        InvalidFormat = 0,
+        LxFsFormat = 1,
+        WslFsFormat = 2,
     };
 
     WslFs(const std::wstring &path);
