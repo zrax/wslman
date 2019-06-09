@@ -130,6 +130,13 @@ namespace WslUtil
 
     std::wstring fromUtf8(const std::string_view &utf8);
     std::string toUtf8(const std::wstring_view &wide);
+
+    enum
+    {
+        Windows1803 = 17134,
+        Windows1809 = 17763,
+    };
+    bool checkWindowsVersion(unsigned build);
 }
 
 // TODO: Use C++20

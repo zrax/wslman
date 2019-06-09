@@ -184,3 +184,26 @@ std::string WslUtil::toUtf8(const std::wstring_view &wide)
                         result.data(), u8size, nullptr, nullptr);
     return result;
 }
+
+bool WslUtil::checkWindowsVersion(unsigned build)
+{
+#if _MSC_VER
+    // MS's replacements for GetVersionEx don't provide the build number
+#   pragma warning(disable:4996)
+#endif
+    OSVERSIONINFOEXW verInfo{sizeof(verInfo)};
+    if (GetVersionExW(reinterpret_cast<LPOSVERSIONINFOW>(&verInfo))) {
+        if (verInfo.dwMajorVersion < 10)
+            return false;
+        if (verInfo.dwMajorVersion == 10 && verInfo.dwMinorVersion == 0
+                && verInfo.dwBuildNumber < build) {
+            return false;
+        }
+        return true;
+    }
+#if _MSC_VER
+#   pragma warning(default:4996)
+#endif
+
+    return false;
+}

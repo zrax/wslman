@@ -74,6 +74,8 @@ public:
 
     WslFs(const std::wstring &path);
 
+    static WslFs create(const std::wstring &path);
+
     std::wstring rootPath() const { return m_rootPath; }
     Format format() const { return m_format; }
 
@@ -85,6 +87,7 @@ public:
     UniqueHandle createFile(const std::string_view &unixPath, const WslAttr &attr) const;
     UniqueHandle openFile(const std::string_view &unixPath) const;
 
+    bool createDirectory(const std::string_view &unixPath, const WslAttr &attr) const;
     bool createSymlink(const std::string_view &unixPath,
                        const std::string_view &target, const WslAttr &attr) const;
     bool createHardLink(const std::string_view &unixPath,
@@ -93,4 +96,6 @@ public:
 private:
     Format m_format;
     std::wstring m_rootPath;
+
+    WslFs(Format format, const std::wstring &path);
 };

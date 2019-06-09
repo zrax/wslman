@@ -14,10 +14,15 @@
  * along with wslman.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define WIN32_NO_STATUS     // Conflicts with ntstatus.h
 #include "wslfs.h"
 
+#include <aclapi.h>
 #include <winternl.h>
 #include <winioctl.h>
+
+#undef WIN32_NO_STATUS
+#include <ntstatus.h>
 
 // NOTE: This is based on the work of LxRunOffline's WSL filesystem support
 
@@ -58,7 +63,9 @@ extern "C" {
     );
 }
 
-#define IO_REPARSE_TAG_LX_SYMLINK (0xA000001DL)
+#define IO_REPARSE_TAG_LX_SYMLINK       0xA000001DL
+#define FILE_CS_FLAG_CASE_SENSITIVE_DIR 0x00000001
+#define FileCaseSensitiveInformation    static_cast<FILE_INFORMATION_CLASS>(71)
 
 template <size_t NameLength>
 struct FILE_GET_EA_INFORMATION
@@ -110,11 +117,33 @@ struct REPARSE_DATA_BUFFER
     UCHAR   DataBuffer[1];
 };
 
+struct FILE_CASE_SENSITIVE_INFORMATION
+{
+    ULONG Flags;
+};
+
 class InvalidAttribute : public std::runtime_error
 {
 public:
     InvalidAttribute() : std::runtime_error("Invalid NT Extended Attribute value") { }
 };
+
+// FILETIME is 100-nanosecond intervals since January 1, 1601 (UTC)
+#define FILETIME_OFFSET 116444736000000000
+
+static LARGE_INTEGER unixToFileTime(uint64_t time, uint32_t nsec)
+{
+    LARGE_INTEGER fileTime;
+    fileTime.QuadPart = (time * 10000000) + (nsec / 100) + FILETIME_OFFSET;
+    return fileTime;
+}
+
+static uint64_t fileTimeToUnix(const LARGE_INTEGER &fileTime, uint32_t &nsec)
+{
+    auto divmod = std::lldiv(fileTime.QuadPart - FILETIME_OFFSET, 10000000);
+    nsec = divmod.rem * 100;
+    return divmod.quot;
+}
 
 static QString ntdllError(const QString &prefix, HRESULT rc)
 {
@@ -199,6 +228,34 @@ WslFs::WslFs(const std::wstring &path)
     m_format = detectFormat(m_rootPath);
 }
 
+WslFs::WslFs(Format format, const std::wstring &path)
+    : m_format(format)
+{
+    if (starts_with(path, LR"(\\?\)"))
+        m_rootPath = path;
+    else
+        m_rootPath = LR"(\\?\)" + path;
+}
+
+WslFs WslFs::create(const std::wstring &path)
+{
+    Format format = WslUtil::checkWindowsVersion(WslUtil::Windows1809)
+                  ? WslFsFormat : LxFsFormat;
+    WslFs rootfs(format, path);
+
+    LARGE_INTEGER sysTime;
+    NtQuerySystemTime(&sysTime);
+    uint32_t unixTimeNsec;
+    uint64_t unixTime = fileTimeToUnix(sysTime, unixTimeNsec);
+
+    const WslAttr attr(0040755, 0, 0, unixTime, unixTimeNsec,
+                       unixTime, unixTimeNsec, unixTime, unixTimeNsec);
+    if (!rootfs.createDirectory("", attr))
+        throw std::runtime_error("Could not initialize root directory");
+
+    return rootfs;
+}
+
 static std::wstring encodeChar(WslFs::Format format, wchar_t ch)
 {
     switch (format) {
@@ -250,23 +307,6 @@ std::wstring WslFs::path(const std::string_view &unixPath) const
             result.append(encodePath(m_format, unixWide));
     }
     return result;
-}
-
-// FILETIME is 100-nanosecond intervals since January 1, 1601 (UTC)
-#define FILETIME_OFFSET 116444736000000000
-
-static LARGE_INTEGER unixToFileTime(uint64_t time, uint32_t nsec)
-{
-    LARGE_INTEGER fileTime;
-    fileTime.QuadPart = (time * 10000000) + (nsec / 100) + FILETIME_OFFSET;
-    return fileTime;
-}
-
-static uint64_t fileTimeToUnix(const LARGE_INTEGER &fileTime, uint32_t &nsec)
-{
-    auto divmod = std::lldiv(fileTime.QuadPart - FILETIME_OFFSET, 10000000);
-    nsec = divmod.rem * 100;
-    return divmod.quot;
 }
 
 WslAttr WslFs::getAttr(HANDLE hFile) const
@@ -339,6 +379,62 @@ UniqueHandle WslFs::openFile(const std::string_view &unixPath) const
     return CreateFileW(path(unixPath).c_str(), MAXIMUM_ALLOWED,
                        FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                        FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+}
+
+bool WslFs::createDirectory(const std::string_view &unixPath, const WslAttr &attr) const
+{
+    if ((attr.mode & LX_IFMT) != LX_IFDIR)
+        throw std::invalid_argument("Invalid directory mode");
+
+    std::wstring wslPath = path(unixPath);
+    if (!CreateDirectoryW(wslPath.c_str(), nullptr)) {
+        auto err = GetLastError();
+        if (err != ERROR_ALREADY_EXISTS)
+            return false;
+    }
+
+    UniqueHandle hDir = CreateFileW(path(unixPath).c_str(), MAXIMUM_ALLOWED,
+                                    FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                    FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (hDir == INVALID_HANDLE_VALUE)
+        return false;
+
+    setAttr(hDir.get(), attr);
+
+    // Case sensitivity is set on a per-directory basis
+    FILE_CASE_SENSITIVE_INFORMATION info = {FILE_CS_FLAG_CASE_SENSITIVE_DIR};
+    IO_STATUS_BLOCK iosb;
+    memset(&iosb, 0, sizeof(iosb));
+    auto rc = NtSetInformationFile(hDir.get(), &iosb, &info, sizeof(info),
+                                   FileCaseSensitiveInformation);
+    if (rc == STATUS_ACCESS_DENIED) {
+        // Directories which already exist might require FILE_DELETE_CHILD
+        // permission in order to modify existing files already in the directory
+        ACL *acl;
+        PSECURITY_DESCRIPTOR security;
+        if (GetSecurityInfo(hDir.get(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                            nullptr, nullptr, &acl, nullptr, &security) != ERROR_SUCCESS)
+            return false;
+
+        EXPLICIT_ACCESSW access;
+        ACL *newAcl;
+        BuildExplicitAccessWithNameW(&access, const_cast<wchar_t *>(L"CURRENT_USER"),
+                                     FILE_DELETE_CHILD, GRANT_ACCESS, CONTAINER_INHERIT_ACE);
+        if (SetEntriesInAclW(1, &access, acl, &newAcl) != ERROR_SUCCESS) {
+            LocalFree(security);
+            return false;
+        }
+
+        SetSecurityInfo(hDir.get(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                        nullptr, nullptr, newAcl, nullptr);
+        LocalFree(newAcl);
+        LocalFree(security);
+
+        // Try again
+        rc = NtSetInformationFile(hDir.get(), &iosb, &info, sizeof(info),
+                                  FileCaseSensitiveInformation);
+    }
+    return rc == 0;
 }
 
 bool WslFs::createSymlink(const std::string_view &unixPath,
