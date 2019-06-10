@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with wslman.  If not, see <http://www.gnu.org/licenses/>.
 
-cmake_minimum_required(VERSION 3.4)
+cmake_minimum_required(VERSION 3.10)
 project(wslman)
 
 set(CMAKE_CXX_STANDARD 17)
