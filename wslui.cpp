@@ -20,7 +20,6 @@
 #include "wslsetuser.h"
 #include "wslinstall.h"
 #include "wslutils.h"
-#include "wslfs.h"
 #include <QListWidget>
 #include <QToolBar>
 #include <QLabel>
@@ -82,11 +81,6 @@ WslUi::WslUi()
     m_name = new QLabel(this);
     distLayout->addWidget(lblName, ++distRow, 0);
     distLayout->addWidget(m_name, distRow, 1);
-
-    auto lblVersion = new QLabel(tr("Version:"), this);
-    m_version = new QLabel(this);
-    distLayout->addWidget(lblVersion, ++distRow, 0);
-    distLayout->addWidget(m_version, distRow, 1);
 
     auto lblFsType = new QLabel(tr("Filesystem:"), this);
     m_fsType = new QLabel(this);
@@ -259,7 +253,6 @@ WslUi::~WslUi()
 void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
 {
     m_name->setText(QString::null);
-    m_version->setText(QString::null);
     m_fsType->setText(QString::null);
     m_defaultUser->setText(QString::null);
     m_location->setText(QString::null);
@@ -282,30 +275,13 @@ void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
     }
 }
 
-static unsigned _startShell(void *pvContext)
-{
-    auto context = reinterpret_cast<WslConsoleContext *>(pvContext);
-
-    DWORD exitCode;
-    try {
-        WslApi::LaunchInteractive(context->distName.c_str(), L"", FALSE, &exitCode);
-    } catch (const std::runtime_error &err) {
-        context->errorMessage = QObject::tr("Failed to start %1: %2")
-                                .arg(context->distName).arg(err.what());
-    }
-
-    context->shellTerminated = true;
-    context->unref();
-    return exitCode;
-}
-
 void WslUi::distActivated(QListWidgetItem *item)
 {
     WslDistribution dist = getDistribution(item);
     if (dist.isValid()) {
         AllocConsole();
         auto context = WslConsoleContext::createConsole(dist.name(), item->icon());
-        context->startConsoleThread(this, &_startShell);
+        context->startConsoleThread(this);
         FreeConsole();
     }
 }
@@ -517,14 +493,12 @@ QListWidgetItem *WslUi::findDistByUuid(const QString &uuid)
 void WslUi::updateDistProperties(const WslDistribution &dist)
 {
     m_name->setText(QString::fromStdWString(dist.name()));
-    m_version->setText(QString::number(dist.version()));
 
-    WslFs rootfs(dist.rootfsPath());
-    switch (rootfs.format()) {
-    case WslFs::LxFsFormat:
+    switch (dist.version()) {
+    case WslApi::v1:
         m_fsType->setText(tr("LxFs"));
         break;
-    case WslFs::WslFsFormat:
+    case WslApi::v2:
         m_fsType->setText(tr("WslFs (Windows 1809+)"));
         break;
     }

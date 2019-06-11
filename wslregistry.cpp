@@ -17,6 +17,7 @@
 #include "wslregistry.h"
 
 #include "wslutils.h"
+#include <objbase.h>
 
 #define LXSS_ROOT_PATH L"Software\\Microsoft\\Windows\\CurrentVersion\\Lxss"
 
@@ -151,16 +152,21 @@ void WslDistribution::setName(const std::wstring &name)
     if (!isValid())
         throw std::runtime_error("Cannot set properties on invalid distributions");
 
+    WslRegistry registry;
+    WslDistribution match = registry.findDistByName(name);
+    if (match.isValid())
+        throw std::runtime_error("Name \"" + WslUtil::toUtf8(name) + "\" is already in use");
+
     if (winregSetWstring(LXSS_ROOT_PATH L"\\" + m_uuid, L"DistributionName", name))
         m_name = name;
 }
 
-void WslDistribution::setVersion(uint32_t version)
+void WslDistribution::setVersion(WslApi::Version version)
 {
     if (!isValid())
         throw std::runtime_error("Cannot set properties on invalid distributions");
 
-    if (winregSetDword(LXSS_ROOT_PATH L"\\" + m_uuid, L"Version", version))
+    if (winregSetDword(LXSS_ROOT_PATH L"\\" + m_uuid, L"Version", static_cast<uint32_t>(version)))
         m_version = version;
 }
 
@@ -182,6 +188,24 @@ void WslDistribution::setFlags(WslApi::DistributionFlags flags)
         m_flags = flags;
 }
 
+void WslDistribution::setState(uint32_t state)
+{
+    if (!isValid())
+        throw std::runtime_error("Cannot set properties on invalid distributions");
+
+    if (winregSetDword(LXSS_ROOT_PATH L"\\" + m_uuid, L"State", state))
+        m_state = state;
+}
+
+void WslDistribution::setPath(const std::wstring &path)
+{
+    if (!isValid())
+        throw std::runtime_error("Cannot set properties on invalid distributions");
+
+    if (winregSetWstring(LXSS_ROOT_PATH L"\\" + m_uuid, L"BasePath", path))
+        m_path = path;
+}
+
 void WslDistribution::setKernelCmdLine(const std::wstring &cmdline)
 {
     if (!isValid())
@@ -189,6 +213,15 @@ void WslDistribution::setKernelCmdLine(const std::wstring &cmdline)
 
     if (winregSetWstring(LXSS_ROOT_PATH L"\\" + m_uuid, L"KernelCommandLine", cmdline))
         m_kernelCmdLine = cmdline;
+}
+
+void WslDistribution::setPackageFamilyName(const std::wstring &packageFamilyName)
+{
+    if (!isValid())
+        throw std::runtime_error("Cannot set properties on invalid distributions");
+
+    if (winregSetWstring(LXSS_ROOT_PATH L"\\" + m_uuid, L"PackageFamilyName", packageFamilyName))
+        m_packageFamilyName = packageFamilyName;
 }
 
 void WslDistribution::addEnvironment(const std::wstring &key, const std::wstring &value)
@@ -243,7 +276,7 @@ WslDistribution WslDistribution::loadFromRegistry(const std::wstring &path)
     dist.m_uuid = path.substr(uuidStart + 1);
 
     dist.m_name = winregGetWstring(path, L"DistributionName");
-    dist.m_version = winregGetDword(path, L"Version");
+    dist.m_version = static_cast<WslApi::Version>(winregGetDword(path, L"Version"));
     dist.m_defaultUID = winregGetDword(path, L"DefaultUid");
     dist.m_flags = static_cast<WslApi::DistributionFlags>(winregGetDword(path, L"Flags"));
     dist.m_defaultEnvironment = winregGetWstringArray(path, L"DefaultEnvironment");
@@ -253,6 +286,26 @@ WslDistribution WslDistribution::loadFromRegistry(const std::wstring &path)
     dist.m_kernelCmdLine = winregGetWstring(path, L"KernelCommandLine");
     dist.m_packageFamilyName = winregGetWstring(path, L"PackageFamilyName");
 
+    return dist;
+}
+
+WslDistribution WslDistribution::create()
+{
+    GUID distId;
+    auto rc = CoCreateGuid(&distId);
+    if (FAILED(rc))
+        throw std::runtime_error("Failed to generate a unique distribution ID");
+
+    wchar_t uuidBuffer[64] = {0};
+    if (StringFromGUID2(distId, uuidBuffer, static_cast<int>(std::size(uuidBuffer))) == 0)
+        throw std::runtime_error("Failed to stringify distribution ID");
+
+    WslDistribution dist;
+    dist.m_uuid = uuidBuffer;
+    dist.m_version = WslApi::InvalidVersion;
+    dist.m_defaultUID = 0;
+    dist.m_flags = WslApi::DistributionFlags_None;
+    dist.m_state = 0;
     return dist;
 }
 
@@ -335,4 +388,43 @@ WslDistribution WslRegistry::findDistByName(const std::wstring &name) const
 WslDistribution WslRegistry::findDistByUuid(const std::wstring &uuid)
 {
     return WslDistribution::loadFromRegistry(LXSS_ROOT_PATH L"\\" + uuid);
+}
+
+WslDistribution WslRegistry::registerDistribution(const std::wstring &name,
+                                                  const std::wstring &path)
+{
+    WslRegistry registry;
+    WslDistribution match = registry.findDistByName(name);
+    if (match.isValid())
+        throw std::runtime_error("Name \"" + WslUtil::toUtf8(name) + "\" is already in use");
+
+    // This just allocates a UUID, but doesn't create the registry node yet
+    auto dist = WslDistribution::create();
+    HKEY distKey;
+    std::wstring keyPath = LXSS_ROOT_PATH L"\\" + dist.uuid();
+    auto rc = RegCreateKeyExW(HKEY_CURRENT_USER, keyPath.c_str(), 0, nullptr,
+                              0, KEY_READ, nullptr, &distKey, nullptr);
+    if (rc != ERROR_SUCCESS)
+        throw std::runtime_error("Could not create distribution registry key");
+
+    // These populate the registry with the appropriate default values
+    dist.setName(name);
+    dist.setPath(path);
+    dist.setState(1);
+    dist.setVersion(WslApi::InvalidVersion);    // To be configured later by WslFs
+    dist.setDefaultUID(0);
+    dist.setFlags(WslApi::DistributionFlags_All);
+    dist.setKernelCmdLine(L"BOOT_IMAGE=/kernel init=/init");
+    dist.setEnvironment({
+        L"HOSTTYPE=x86_64",
+        L"LANG=en_US.UTF-8",
+        L"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games",
+        L"TERM=xterm-256color"
+    });
+
+    match = defaultDistribution();
+    if (!match.isValid())
+        setDefaultDistribution(dist.uuid());
+
+    return dist;
 }

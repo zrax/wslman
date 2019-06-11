@@ -37,6 +37,13 @@ namespace WslApi
         DistributionFlags_All = 0x7,
     };
 
+    enum Version
+    {
+        InvalidVersion = 0,
+        v1 = 1,             // LxFs
+        v2 = 2,             // WslFs
+    };
+
     HRESULT ConfigureDistribution(PCWSTR distributionName, ULONG defaultUID,
                 DistributionFlags wslDistributionFlags);
     HRESULT GetDistributionConfiguration(PCWSTR distributionName,

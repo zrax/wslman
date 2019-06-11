@@ -197,23 +197,23 @@ void setNtExAttr(HANDLE hFile, const char (&name)[NameLength], const AttrType &v
     }
 }
 
-static WslFs::Format detectFormat(const std::wstring &path)
+static WslApi::Version detectFormat(const std::wstring &path)
 {
     UniqueHandle hFile = CreateFileW(path.c_str(), MAXIMUM_ALLOWED,
                                      FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                      FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (hFile == INVALID_HANDLE_VALUE)
-        return WslFs::InvalidFormat;
+        return WslApi::InvalidVersion;
 
     try {
         (void)getNtExAttr<uint32_t>(hFile.get(), "$LXUID");
-        return WslFs::WslFsFormat;
+        return WslApi::v2;
     } catch (const InvalidAttribute &) {
         try {
             (void)getNtExAttr<WslAttr>(hFile.get(), "LXATTRB");
-            return WslFs::LxFsFormat;
+            return WslApi::v1;
         } catch (const InvalidAttribute &) {
-            return WslFs::InvalidFormat;
+            return WslApi::InvalidVersion;
         }
     }
 }
@@ -225,11 +225,11 @@ WslFs::WslFs(const std::wstring &path)
     else
         m_rootPath = LR"(\\?\)" + path;
 
-    m_format = detectFormat(m_rootPath);
+    m_version = detectFormat(m_rootPath);
 }
 
-WslFs::WslFs(Format format, const std::wstring &path)
-    : m_format(format)
+WslFs::WslFs(WslApi::Version version, const std::wstring &path)
+    : m_version(version)
 {
     if (starts_with(path, LR"(\\?\)"))
         m_rootPath = path;
@@ -239,9 +239,9 @@ WslFs::WslFs(Format format, const std::wstring &path)
 
 WslFs WslFs::create(const std::wstring &path)
 {
-    Format format = WslUtil::checkWindowsVersion(WslUtil::Windows1809)
-                  ? WslFsFormat : LxFsFormat;
-    WslFs rootfs(format, path);
+    WslApi::Version version = WslUtil::checkWindowsVersion(WslUtil::Windows1809)
+                            ? WslApi::v2 : WslApi::v1;
+    WslFs rootfs(version, path);
 
     LARGE_INTEGER sysTime;
     NtQuerySystemTime(&sysTime);
@@ -256,23 +256,23 @@ WslFs WslFs::create(const std::wstring &path)
     return rootfs;
 }
 
-static std::wstring encodeChar(WslFs::Format format, wchar_t ch)
+static std::wstring encodeChar(WslApi::Version version, wchar_t ch)
 {
-    switch (format) {
-    case WslFs::LxFsFormat:
+    switch (version) {
+    case WslApi::v1:
         {
             wchar_t buffer[8];
             swprintf(buffer, std::size(buffer), L"#%04X", ch);
             return buffer;
         }
-    case WslFs::WslFsFormat:
+    case WslApi::v2:
         return std::wstring(1, ch | 0xf000);
     default:
         return std::wstring(1, ch);
     }
 }
 
-static std::wstring encodePath(WslFs::Format format, const std::wstring_view &path)
+static std::wstring encodePath(WslApi::Version version, const std::wstring_view &path)
 {
     std::wstring result;
     result.reserve(path.size());
@@ -282,7 +282,7 @@ static std::wstring encodePath(WslFs::Format format, const std::wstring_view &pa
         } else if ((ch >= L'\x01' && ch <= L'\x1f') || ch == L'<' || ch == L'>'
                     || ch == L':' || ch == L'"' || ch == L'\\' || ch == L'|'
                     || ch == L'*' || ch == L'#') {
-            result.append(encodeChar(format, ch));
+            result.append(encodeChar(version, ch));
         } else {
             result.push_back(ch);
         }
@@ -293,6 +293,9 @@ static std::wstring encodePath(WslFs::Format format, const std::wstring_view &pa
 
 std::wstring WslFs::path(const std::string_view &unixPath) const
 {
+    if (unixPath.empty())
+        return m_rootPath;
+
     std::wstring unixWide = WslUtil::fromUtf8(unixPath);
 
     std::wstring result;
@@ -300,21 +303,19 @@ std::wstring WslFs::path(const std::string_view &unixPath) const
     result.append(m_rootPath);
     if (result.back() != L'\\')
         result.push_back(L'\\');
-    if (!unixWide.empty()) {
-        if (unixWide.front() == L'/')
-            result.append(encodePath(m_format, std::wstring_view(unixWide).substr(1)));
-        else
-            result.append(encodePath(m_format, unixWide));
-    }
+    if (unixWide.front() == L'/')
+        result.append(encodePath(m_version, std::wstring_view(unixWide).substr(1)));
+    else
+        result.append(encodePath(m_version, unixWide));
     return result;
 }
 
 WslAttr WslFs::getAttr(HANDLE hFile) const
 {
-    switch (m_format) {
-    case LxFsFormat:
+    switch (m_version) {
+    case WslApi::v1:
         return getNtExAttr<WslAttr>(hFile, "LXATTRB");
-    case WslFsFormat:
+    case WslApi::v2:
         {
             WslAttr attr;
             attr.uid = getNtExAttr<uint32_t>(hFile, "$LXUID");
@@ -335,28 +336,27 @@ WslAttr WslFs::getAttr(HANDLE hFile) const
 
 void WslFs::setAttr(HANDLE hFile, const WslAttr &attr) const
 {
-    switch (m_format) {
-    case LxFsFormat:
+    switch (m_version) {
+    case WslApi::v1:
         setNtExAttr(hFile, "LXATTRB", attr);
         break;
-    case WslFsFormat:
-        {
-            setNtExAttr(hFile, "$LXUID", attr.uid);
-            setNtExAttr(hFile, "$LXGID", attr.gid);
-            setNtExAttr(hFile, "$LXMOD", attr.mode);
-            FILE_BASIC_INFO info;
-            info.CreationTime = unixToFileTime(attr.ctime, attr.ctime_nsec);
-            info.LastAccessTime = unixToFileTime(attr.atime, attr.atime_nsec);
-            info.LastWriteTime = unixToFileTime(attr.mtime, attr.mtime_nsec);
-            info.ChangeTime = info.CreationTime;
-            info.FileAttributes = 0;
-            if (!SetFileInformationByHandle(hFile, FileBasicInfo, &info, sizeof(info)))
-                throw std::runtime_error("Failed to set file extended info");
-        }
+    case WslApi::v2:
+        setNtExAttr(hFile, "$LXUID", attr.uid);
+        setNtExAttr(hFile, "$LXGID", attr.gid);
+        setNtExAttr(hFile, "$LXMOD", attr.mode);
         break;
     default:
         throw std::runtime_error("Invalid file format");
     }
+
+    FILE_BASIC_INFO info;
+    info.CreationTime = unixToFileTime(attr.ctime, attr.ctime_nsec);
+    info.LastAccessTime = unixToFileTime(attr.atime, attr.atime_nsec);
+    info.LastWriteTime = unixToFileTime(attr.mtime, attr.mtime_nsec);
+    info.ChangeTime = info.CreationTime;
+    info.FileAttributes = 0;
+    if (!SetFileInformationByHandle(hFile, FileBasicInfo, &info, sizeof(info)))
+        throw std::runtime_error("Failed to set file extended info");
 }
 
 UniqueHandle WslFs::createFile(const std::string_view &unixPath, const WslAttr &attr) const
@@ -447,14 +447,14 @@ bool WslFs::createSymlink(const std::string_view &unixPath,
     if (hFile == INVALID_HANDLE_VALUE)
         return false;
 
-    switch (m_format) {
-    case LxFsFormat:
+    switch (m_version) {
+    case WslApi::v1:
         {
             DWORD nWritten;
             return WriteFile(hFile.get(), target.data(), static_cast<DWORD>(target.size()),
                              &nWritten, nullptr);
         }
-    case WslFsFormat:
+    case WslApi::v2:
         {
             size_t dataLen = sizeof(uint32_t) + target.size();
             auto bufLen = static_cast<DWORD>(offsetof(REPARSE_DATA_BUFFER, DataBuffer) + dataLen);

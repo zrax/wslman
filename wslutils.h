@@ -52,7 +52,7 @@ struct WslConsoleContext
 
     static WslConsoleContext *createConsole(const std::wstring &name, const QIcon &icon);
 
-    void startConsoleThread(QWidget *parent, unsigned (*proc)(void *));
+    void startConsoleThread(QWidget *parent);
 };
 
 class UniqueHandle
@@ -140,12 +140,14 @@ namespace WslUtil
 }
 
 // TODO: Use C++20
-inline bool starts_with(const std::wstring_view &str, const wchar_t *prefix)
+template <typename StringType, typename CharType>
+inline bool starts_with(const StringType &str, const CharType *prefix)
 {
     return str.rfind(prefix, 0) == 0;
 }
 
-inline bool starts_with(const std::wstring_view &str, const std::wstring &prefix)
+template <typename StringType, typename ViewType>
+inline bool starts_with(const StringType &str, const ViewType &prefix)
 {
     return str.rfind(prefix, 0) == 0;
 }

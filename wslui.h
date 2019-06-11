@@ -56,7 +56,6 @@ private:
     QListWidget *m_distList;
     QFrame *m_distDetails;
     QLabel *m_name;
-    QLabel *m_version;
     QLabel *m_fsType;
     QLabel *m_defaultUser;
     QLineEdit *m_location;

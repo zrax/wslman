@@ -25,6 +25,18 @@ find_package(Qt5Widgets REQUIRED)
 find_package(Qt5WinExtras REQUIRED)
 set(CMAKE_AUTORCC ON)
 
+find_package(LibArchive REQUIRED)
+option(LibArchive_STATIC "Use LibArchive built as a static library" ON)
+
+if(LibArchive_STATIC)
+    find_package(ZLIB REQUIRED)
+    set(LibArchive_LIBRARIES ${LibArchive_LIBRARIES} ${ZLIB_LIBRARIES})
+    find_package(BZip2 REQUIRED)
+    set(LibArchive_LIBRARIES ${LibArchive_LIBRARIES} ${BZIP2_LIBRARIES})
+    find_package(LibLZMA REQUIRED)
+    set(LibArchive_LIBRARIES ${LibArchive_LIBRARIES} ${LIBLZMA_LIBRARIES})
+endif()
+
 add_executable(wslman WIN32 wslman.cpp)
 target_sources(wslman PRIVATE
     wslfs.h
@@ -46,10 +58,19 @@ target_sources(wslman PRIVATE
     wslman.manifest
 )
 
+target_include_directories(wslman PRIVATE
+    ${LibArchive_INCLUDE_DIRS}
+)
+
+if(LibArchive_STATIC)
+    target_compile_definitions(wslman PRIVATE LIBARCHIVE_STATIC)
+endif()
+
 target_link_libraries(wslman PRIVATE
     Qt5::Core
     Qt5::Widgets
     Qt5::WinExtras
+    ${LibArchive_LIBRARIES}
     Ntdll.lib
 )
 

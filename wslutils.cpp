@@ -41,14 +41,31 @@ WslConsoleContext *WslConsoleContext::createConsole(const std::wstring &name,
     return context;
 }
 
-void WslConsoleContext::startConsoleThread(QWidget *parent, unsigned (*proc)(void *))
+static unsigned _startShell(void *pvContext)
+{
+    auto context = reinterpret_cast<WslConsoleContext *>(pvContext);
+
+    DWORD exitCode;
+    try {
+        WslApi::LaunchInteractive(context->distName.c_str(), L"", FALSE, &exitCode);
+    } catch (const std::runtime_error &err) {
+        context->errorMessage = QObject::tr("Failed to start %1: %2")
+                                .arg(context->distName).arg(err.what());
+    }
+
+    context->shellTerminated = true;
+    context->unref();
+    return exitCode;
+}
+
+void WslConsoleContext::startConsoleThread(QWidget *parent)
 {
     // Add a ref for the thread.  When the thread exits, it should call unref()
     ref();
 
     unsigned threadId;
-    HANDLE th = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0,
-                        proc, reinterpret_cast<void *>(this), 0, &threadId));
+    HANDLE th = reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, &_startShell,
+                        reinterpret_cast<void *>(this), 0, &threadId));
     CloseHandle(th);
 
     // Detach from the console once the WSL process starts using it

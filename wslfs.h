@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "wslwrap.h"
 #include "wslutils.h"
 
 // NOTE: This is based on the work of LxRunOffline's WSL filesystem support
@@ -47,7 +48,7 @@ struct WslAttr
 
     WslAttr() { }   // Default uninitialized
 
-    explicit WslAttr(uint32_t mode_, uint32_t uid_ = 0, uint32_t gid_ = 0)
+    WslAttr(uint32_t mode_, uint32_t uid_, uint32_t gid_)
         : flags(), ver(1), mode(mode_), uid(uid_), gid(gid_), rdev(),
           atime_nsec(), mtime_nsec(), ctime_nsec(), atime(), mtime(),
           ctime() { }
@@ -65,19 +66,12 @@ struct WslAttr
 class WslFs
 {
 public:
-    enum Format
-    {
-        InvalidFormat = 0,
-        LxFsFormat = 1,
-        WslFsFormat = 2,
-    };
-
     WslFs(const std::wstring &path);
 
     static WslFs create(const std::wstring &path);
 
     std::wstring rootPath() const { return m_rootPath; }
-    Format format() const { return m_format; }
+    WslApi::Version version() const { return m_version; }
 
     std::wstring path(const std::string_view &unixPath) const;
 
@@ -94,8 +88,8 @@ public:
                         const std::string_view &unixTarget) const;
 
 private:
-    Format m_format;
+    WslApi::Version m_version;
     std::wstring m_rootPath;
 
-    WslFs(Format format, const std::wstring &path);
+    WslFs(WslApi::Version version, const std::wstring &path);
 };

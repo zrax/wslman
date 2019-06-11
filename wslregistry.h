@@ -31,7 +31,7 @@ public:
     const std::wstring &name() const { return m_name; }
     std::wstring uuid() const { return m_uuid; }
 
-    uint32_t version() const { return m_version; }
+    WslApi::Version version() const { return m_version; }
     uint32_t defaultUID() const { return m_defaultUID; }
     WslApi::DistributionFlags flags() const { return m_flags; }
     const std::vector<std::wstring> &defaultEnvironment() const { return m_defaultEnvironment; }
@@ -44,21 +44,26 @@ public:
     std::wstring rootfsPath() const;
 
     void setName(const std::wstring &name);
-    void setVersion(uint32_t version);
+    void setVersion(WslApi::Version version);
     void setDefaultUID(uint32_t uid);
     void setFlags(WslApi::DistributionFlags flags);
+
+    void setState(uint32_t state);
+    void setPath(const std::wstring &path);
     void setKernelCmdLine(const std::wstring &cmdline);
+    void setPackageFamilyName(const std::wstring &packageFamilyName);
 
     void addEnvironment(const std::wstring &key, const std::wstring &value);
     void delEnvironment(const std::wstring &key);
     void setEnvironment(const std::vector<std::wstring> &env);
 
     static WslDistribution loadFromRegistry(const std::wstring &path);
+    static WslDistribution create();
 
 private:
     // Available in WSL API
     std::wstring m_name;
-    uint32_t m_version;
+    WslApi::Version m_version;
     uint32_t m_defaultUID;
     WslApi::DistributionFlags m_flags;
     std::vector<std::wstring> m_defaultEnvironment;
@@ -83,6 +88,9 @@ public:
 
     WslDistribution findDistByName(const std::wstring &name) const;
     static WslDistribution findDistByUuid(const std::wstring &uuid);
+
+    WslDistribution registerDistribution(const std::wstring &name,
+                                         const std::wstring &path);
 
 private:
     HKEY m_lxssKey;

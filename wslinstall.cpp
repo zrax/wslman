@@ -18,7 +18,7 @@
 
 #include "wslregistry.h"
 #include "wslui.h"
-#include "wslutils.h"
+#include "wslfs.h"
 #include <QLabel>
 #include <QLineEdit>
 #include <QDialogButtonBox>
@@ -30,7 +30,10 @@
 #include <QFileInfo>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QProgressDialog>
 #include <QMessageBox>
+#include <archive.h>
+#include <archive_entry.h>
 
 WslInstallDialog::WslInstallDialog(QWidget *parent)
     : QDialog(parent)
@@ -66,7 +69,9 @@ WslInstallDialog::WslInstallDialog(QWidget *parent)
     m_tarball = new QLineEdit(this);
     auto fileModel = new QFileSystemModel(m_tarball);
     fileModel->setFilter(QDir::AllDirs | QDir::AllEntries | QDir::NoDotAndDotDot);
-    fileModel->setNameFilters(QStringList{QStringLiteral("*.tar.gz"), QStringLiteral("*.tgz")});
+    fileModel->setNameFilters({QStringLiteral("*.tar"), QStringLiteral("*.tar.*"),
+                               QStringLiteral("*.tgz"), QStringLiteral("*.txz"),
+                               QStringLiteral("*.tbz"), QStringLiteral("*.tbz2")});
     fileModel->setRootPath(QDir::rootPath());
     auto tarballCompleter = new QCompleter(fileModel, m_tarball);
     m_tarball->setCompleter(tarballCompleter);
@@ -90,7 +95,7 @@ WslInstallDialog::WslInstallDialog(QWidget *parent)
     connect(selectTarball, &QAbstractButton::clicked, this, [this](bool) {
         QString path = QFileDialog::getOpenFileName(this,
                             tr("Select Install Tarball..."), m_tarball->text(),
-                            QStringLiteral("Gzipped Tarballs (*.tar.gz *.tgz)"));
+                            QStringLiteral("Tarballs (*.tar *.tar.* *.tgz *.tbz *.tbz2 *.txz)"));
         if (!path.isEmpty())
             m_tarball->setText(path);
     });
@@ -171,25 +176,6 @@ static QString wslError(const QString &prefix, HRESULT rc)
     return QStringLiteral("%1: %2").arg(prefix).arg(QString::fromWCharArray(buffer));
 }
 
-struct Pushd
-{
-    Pushd(const QString &path)
-    {
-        lastDir = QDir::currentPath();
-        result = QDir::setCurrent(path);
-    }
-
-    ~Pushd()
-    {
-        QDir::setCurrent(lastDir);
-    }
-
-    QString lastDir;
-    bool result;
-
-    operator bool() const { return result; }
-};
-
 void WslInstallDialog::performInstall()
 {
     std::wstring distName = m_distName->text().toStdWString();
@@ -198,8 +184,149 @@ void WslInstallDialog::performInstall()
 
     setupDistribution();
 
-    context->unref();
+    // Attempt to run the newly installed distribution
+    context->startConsoleThread(this);
     FreeConsole();
+}
+
+#define BLOCK_SIZE 16384
+
+static std::string archiveError(archive *arc)
+{
+    return std::string("Failed to extract archive: ") + archive_error_string(arc);
+}
+
+static void extractTarball(WslFs &rootfs, const std::wstring &tarball)
+{
+    std::unique_ptr<archive, decltype(&archive_read_free)> rootfsArchive(
+        archive_read_new(), &archive_read_free
+    );
+
+    LARGE_INTEGER tarballSize;
+    {
+        UniqueHandle hTarball = CreateFileW(tarball.c_str(), MAXIMUM_ALLOWED,
+                                    FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                    0, nullptr);
+        if (!GetFileSizeEx(hTarball.get(), &tarballSize))
+            tarballSize.QuadPart = 0;
+    }
+
+    archive_read_support_filter_all(rootfsArchive.get());
+    archive_read_support_format_all(rootfsArchive.get());
+    if (archive_read_open_filename_w(rootfsArchive.get(), tarball.c_str(),
+                                     BLOCK_SIZE) != ARCHIVE_OK)
+        throw std::runtime_error(archiveError(rootfsArchive.get()));
+
+    QProgressDialog progressDialog;
+    progressDialog.setLabelText(QObject::tr("Installing distribution rootfs..."));
+    // QProgressDialog only supports int progress, so adjust to KiB for a larger
+    // possible maximum tarball length.
+    progressDialog.setMaximum(static_cast<int>(tarballSize.QuadPart / 1024));
+    progressDialog.setWindowModality(Qt::WindowModal);
+
+    for ( ;; ) {
+        if (progressDialog.wasCanceled())
+            break;
+
+        archive_entry *ent;
+        int rc = archive_read_next_header(rootfsArchive.get(), &ent);
+        if (rc == ARCHIVE_EOF)
+            break;
+        else if (rc != ARCHIVE_OK)
+            throw std::runtime_error(archiveError(rootfsArchive.get()));
+
+        auto progressKiB = archive_filter_bytes(rootfsArchive.get(), -1);
+        progressDialog.setValue(static_cast<int>(progressKiB / 1024));
+
+        std::string path;
+        const char *u8path = archive_entry_pathname(ent);
+        if (u8path) {
+            path = u8path;
+        } else {
+            const wchar_t *wpath = archive_entry_pathname_w(ent);
+            if (wpath)
+                path = WslUtil::toUtf8(wpath);
+            else
+                throw std::runtime_error("Could not get pathname from archive entry");
+        }
+        if (starts_with(path, "./"))
+            path = path.substr(1);
+        else if (!starts_with(path, "/"))
+            path = "/" + path;
+
+        if (path == "/" || path == ".") {
+            // We already created the root directory
+            continue;
+        }
+
+        std::string hardLink;
+        u8path = archive_entry_hardlink(ent);
+        if (u8path) {
+            hardLink = u8path;
+        } else {
+            const wchar_t *wpath = archive_entry_hardlink_w(ent);
+            if (wpath)
+                hardLink = WslUtil::toUtf8(wpath);
+        }
+        if (!hardLink.empty()) {
+            if (starts_with(hardLink, "./"))
+                hardLink = hardLink.substr(1);
+            else if (!starts_with(hardLink, "/"))
+                hardLink = "/" + hardLink;
+            if (!rootfs.createHardLink(path, hardLink))
+                throw std::runtime_error("Could not create hard link");
+            continue;
+        }
+
+        auto astat = archive_entry_stat(ent);
+        auto mtime_nsec = archive_entry_mtime_nsec(ent);
+        WslAttr attr(astat->st_mode, astat->st_uid, astat->st_gid,
+                     astat->st_mtime, mtime_nsec, astat->st_mtime, mtime_nsec,
+                     astat->st_mtime, mtime_nsec);
+        if (archive_entry_atime_is_set(ent)) {
+            attr.atime = astat->st_atime;
+            attr.atime_nsec = archive_entry_atime_nsec(ent);
+        }
+        if (archive_entry_ctime_is_set(ent)) {
+            attr.ctime = astat->st_ctime;
+            attr.ctime_nsec = archive_entry_ctime_nsec(ent);
+        }
+
+        auto type = archive_entry_filetype(ent);
+        if (type == AE_IFDIR) {
+            rootfs.createDirectory(path, attr);
+        } else if (type == AE_IFLNK) {
+            std::string symLink;
+            u8path = archive_entry_symlink(ent);
+            if (u8path) {
+                symLink = u8path;
+            } else {
+                const wchar_t *wpath = archive_entry_symlink_w(ent);
+                if (wpath)
+                    symLink = WslUtil::toUtf8(wpath);
+                else
+                    throw std::runtime_error("Could not read archive symlink");
+            }
+            rootfs.createSymlink(path, symLink, attr);
+        } else {
+            UniqueHandle hFile = rootfs.createFile(path, attr);
+            for ( ;; ) {
+                const void *buffer;
+                size_t size;
+                int64_t offset;
+                rc = archive_read_data_block(rootfsArchive.get(), &buffer, &size, &offset);
+                if (rc == ARCHIVE_EOF)
+                    break;
+                else if (rc != ARCHIVE_OK)
+                    throw std::runtime_error(archiveError(rootfsArchive.get()));
+
+                DWORD nWritten;
+                if (!WriteFile(hFile.get(), buffer, static_cast<DWORD>(size),
+                               &nWritten, nullptr))
+                    throw std::runtime_error("Could not write file data");
+            }
+        }
+    }
 }
 
 void WslInstallDialog::setupDistribution()
@@ -207,42 +334,30 @@ void WslInstallDialog::setupDistribution()
     std::wstring distName = m_distName->text().toStdWString();
     wprintf(L"Installing %s...\n", distName.c_str());
     try {
-        QString installPath = m_installPath->text();
-        if (!QDir::current().mkpath(installPath)) {
+        if (!QDir::current().mkpath(m_installPath->text())) {
             QMessageBox::critical(this, QString::null,
                     tr("Failed to create distribution directory"));
-            return;
-        }
-
-        Pushd cdDist(m_installPath->text());
-        if (!cdDist) {
-            QMessageBox::critical(this, QString::null,
-                    tr("Failed to create distribution directory"));
-            return;
-        }
-
-        std::wstring tarball = m_tarball->text().toStdWString();
-        // TODO:  This DOESN'T WORK, because it can only be used when the
-        // caller is an (installed) UWP application.  FFS Microsoft.
-        auto rc = WslApi::RegisterDistribution(distName.c_str(), tarball.c_str());
-        if (FAILED(rc)) {
-            QMessageBox::critical(this, QString::null,
-                    wslError(tr("Failed to register distribution"), rc));
             return;
         }
 
         WslRegistry registry;
-        WslDistribution dist = registry.findDistByName(distName);
+        std::wstring distDir = m_installPath->text().toStdWString();
+        WslDistribution dist = registry.registerDistribution(distName.c_str(), distDir.c_str());
         if (!dist.isValid()) {
             QMessageBox::critical(this, QString::null, tr("Failed to register distribution"));
             return;
         }
 
+        std::wstring tarball = m_tarball->text().toStdWString();
+        auto rootfs = WslFs::create(dist.rootfsPath());
+        dist.setVersion(rootfs.version());
+        extractTarball(rootfs, tarball);
+
         // Delete /etc/resolv.conf to allow WSL to generate a version based on
         // Windows networking information.
         DWORD exitCode;
-        rc = WslApi::LaunchInteractive(distName.c_str(),
-                        L"/bin/rm /etc/resolv.conf", TRUE, &exitCode);
+        auto rc = WslApi::LaunchInteractive(distName.c_str(),
+                            L"/bin/rm /etc/resolv.conf", TRUE, &exitCode);
         if (FAILED(rc)) {
             QMessageBox::critical(this, QString::null,
                     wslError(tr("Failed to configure distribution"), rc));
@@ -251,6 +366,7 @@ void WslInstallDialog::setupDistribution()
 
         // Create a default user
         QString username;
+        std::wstring commandLine;
         for ( ;; ) {
             bool ok;
             username = QInputDialog::getText(this, tr("Create Default User"),
@@ -263,29 +379,36 @@ void WslInstallDialog::setupDistribution()
             }
 
             username.replace(QLatin1Char('\''), QLatin1String("'\\''"));
-            std::wstring commandLine = QStringLiteral("/usr/sbin/adduser --quiet --gecos '' '%1'")
-                                            .arg(username).toStdWString();
+            commandLine = QStringLiteral("/usr/sbin/adduser -g '' '%1'")
+                                .arg(username).toStdWString();
             rc = WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
-                            TRUE, &exitCode);
+                                           TRUE, &exitCode);
             if (FAILED(rc)) {
                 QMessageBox::critical(this, QString::null,
                         wslError(tr("Failed to create default user"), rc));
                 return;
-            } else if (exitCode == 0) {
+            } else if (exitCode != 0) {
+                QMessageBox::critical(this, QString::null,
+                        tr("Failed to create default user with adduser"));
+                return;
+            } else {
                 // Successfully created the user
                 break;
             }
         }
-        if (username.isEmpty()) {
-            rc = WslApi::ConfigureDistribution(distName.c_str(), 0, WslApi::DistributionFlags_All);
-        } else {
+        if (!username.isEmpty()) {
+            const QStringList tryGroups{"adm", "wheel", "sudo", "cdrom", "plugdev"};
+            for (const QString &group : tryGroups) {
+                // These are allowed to fail since not all groups are available
+                // on all distributions.
+                commandLine = QStringLiteral("/usr/sbin/usermod -aG %1 '%2'")
+                                    .arg(group).arg(username).toStdWString();
+                WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
+                                          TRUE, &exitCode);
+            }
+
             uint32_t uid = WslUtil::getUid(distName, username);
-            rc = WslApi::ConfigureDistribution(distName.c_str(), uid, WslApi::DistributionFlags_All);
-        }
-        if (FAILED(rc)) {
-            QMessageBox::critical(this, QString::null,
-                    wslError(tr("Failed to configure default user"), rc));
-            return;
+            dist.setDefaultUID(uid);
         }
     } catch (const std::runtime_error &err) {
         QMessageBox::critical(this, QString::null,
