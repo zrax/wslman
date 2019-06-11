@@ -20,7 +20,9 @@
 #include <QIcon>
 
 class QLineEdit;
+class QPlainTextEdit;
 class QLabel;
+class QGroupBox;
 
 class WslInstallDialog : public QDialog
 {
@@ -36,6 +38,14 @@ private:
     QLabel *m_distIconLabel;
     QLineEdit *m_tarball;
     QLineEdit *m_installPath;
+
+    QGroupBox *m_runCmdGroupBox;
+    QPlainTextEdit *m_runCommands;
+
+    QGroupBox *m_userGroupBox;
+    QLineEdit *m_defaultUsername;
+    QLineEdit *m_userGecos;
+    QLineEdit *m_userGroups;
 
     void setupDistribution();
 };

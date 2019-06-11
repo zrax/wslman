@@ -35,6 +35,8 @@ struct WslConsoleContext
     QString errorMessage;
     HICON distIconBig = nullptr;
     HICON distIconSmall = nullptr;
+    FILE *stdoutStream = nullptr;
+    FILE *stderrStream = nullptr;
 
     std::atomic<int> refs = 1;
     void ref() { ++refs; }

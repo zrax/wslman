@@ -21,9 +21,11 @@
 #include "wslfs.h"
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QToolButton>
+#include <QGroupBox>
 #include <QGridLayout>
 #include <QCompleter>
 #include <QFileSystemModel>
@@ -32,8 +34,22 @@
 #include <QInputDialog>
 #include <QProgressDialog>
 #include <QMessageBox>
+#include <QRegularExpression>
 #include <archive.h>
 #include <archive_entry.h>
+
+class SmallerPlainTextEdit : public QPlainTextEdit
+{
+public:
+    SmallerPlainTextEdit(QWidget *parent = nullptr)
+        : QPlainTextEdit(parent) { }
+
+    QSize sizeHint() const override
+    {
+        const QSize defSize = QPlainTextEdit::sizeHint();
+        return QSize(defSize.width(), defSize.height() / 3);
+    }
+};
 
 WslInstallDialog::WslInstallDialog(QWidget *parent)
     : QDialog(parent)
@@ -80,6 +96,31 @@ WslInstallDialog::WslInstallDialog(QWidget *parent)
     selectTarball->setIconSize(QSize(16, 16));
     selectTarball->setIcon(openIcon);
 
+    m_runCmdGroupBox = new QGroupBox(tr("&Run additional setup commands"), this);
+    m_runCmdGroupBox->setCheckable(true);
+    m_runCmdGroupBox->setChecked(true);
+    auto lblRunCmdInfo = new QLabel(tr("Specify additional setup commands to run.  "
+                                       "For example, you can install additional packages necessary "
+                                       "to run the distribution from WSL."), m_runCmdGroupBox);
+    lblRunCmdInfo->setWordWrap(true);
+    m_runCommands = new SmallerPlainTextEdit(m_runCmdGroupBox);
+    m_runCommands->appendPlainText("/bin/rm /etc/resolv.conf\n");
+
+    m_userGroupBox = new QGroupBox(tr("&Create default linux user"), this);
+    m_userGroupBox->setCheckable(true);
+    m_userGroupBox->setChecked(true);
+    auto lblUsername = new QLabel(tr("Linux &Username:"), m_userGroupBox);
+    auto lblUserInfo = new QLabel(tr("Note: This does not need to match your Windows username"),
+                                  m_userGroupBox);
+    lblUserInfo->setWordWrap(true);
+    m_defaultUsername = new QLineEdit(m_userGroupBox);
+    lblUsername->setBuddy(m_defaultUsername);
+
+    auto lblUserGroups = new QLabel(tr("User &Groups:"), m_userGroupBox);
+    m_userGroups = new QLineEdit(QStringLiteral("adm,wheel,sudo,cdrom,plugdev"),
+                                 m_userGroupBox);
+    lblUserGroups->setBuddy(m_userGroups);
+
     auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -100,19 +141,35 @@ WslInstallDialog::WslInstallDialog(QWidget *parent)
             m_tarball->setText(path);
     });
 
+    auto runCmdLayout = new QVBoxLayout(m_runCmdGroupBox);
+    runCmdLayout->addWidget(lblRunCmdInfo);
+    runCmdLayout->addWidget(m_runCommands);
+
+    auto userLayout = new QGridLayout(m_userGroupBox);
+    int layoutRow = 0;
+    userLayout->addWidget(lblUsername, layoutRow, 0);
+    userLayout->addWidget(m_defaultUsername, layoutRow, 1);
+    userLayout->addWidget(lblUserInfo, ++layoutRow, 1);
+    userLayout->addItem(new QSpacerItem(0, 10), ++layoutRow, 0, 1, 2);
+    userLayout->addWidget(lblUserGroups, ++layoutRow, 0);
+    userLayout->addWidget(m_userGroups, layoutRow, 1);
+
     auto layout = new QGridLayout(this);
-    layout->addWidget(lblName, 0, 0);
-    layout->addWidget(m_distName, 0, 1);
-    layout->addWidget(m_distIconLabel, 0, 2);
-    layout->addWidget(lblPath, 1, 0);
-    layout->addWidget(m_installPath, 1, 1);
-    layout->addWidget(selectInstallPath, 1, 2);
-    layout->addWidget(lblTarball, 2, 0);
-    layout->addWidget(m_tarball, 2, 1);
-    layout->addWidget(selectTarball, 2, 2);
-    layout->addItem(new QSpacerItem(0, 10, QSizePolicy::Minimum, QSizePolicy::MinimumExpanding),
-                    3, 0, 1, 3);
-    layout->addWidget(buttons, 4, 0, 1, 3);
+    layoutRow = 0;
+    layout->addWidget(lblName, layoutRow, 0);
+    layout->addWidget(m_distName, layoutRow, 1);
+    layout->addWidget(m_distIconLabel, layoutRow, 2);
+    layout->addWidget(lblPath, ++layoutRow, 0);
+    layout->addWidget(m_installPath, layoutRow, 1);
+    layout->addWidget(selectInstallPath, layoutRow, 2);
+    layout->addWidget(lblTarball, ++layoutRow, 0);
+    layout->addWidget(m_tarball, layoutRow, 1);
+    layout->addWidget(selectTarball, layoutRow, 2);
+    layout->addItem(new QSpacerItem(0, 10), ++layoutRow, 0, 1, 3);
+    layout->addWidget(m_runCmdGroupBox, ++layoutRow, 0, 1, 3);
+    layout->addWidget(m_userGroupBox, ++layoutRow, 0, 1, 3);
+    layout->addItem(new QSpacerItem(0, 10), ++layoutRow, 0, 1, 3);
+    layout->addWidget(buttons, ++layoutRow, 0, 1, 3);
 }
 
 static bool isDirectoryEmpty(const QString &path)
@@ -126,8 +183,9 @@ static bool isDirectoryEmpty(const QString &path)
 bool WslInstallDialog::validate()
 {
     if (m_distName->text().isEmpty() || m_installPath->text().isEmpty()
-            || m_tarball->text().isEmpty()) {
-        QMessageBox::critical(this, QString::null, tr("All fields are required"));
+            || m_tarball->text().isEmpty()
+            || (m_userGroupBox->isChecked() && m_defaultUsername->text().isEmpty())) {
+        QMessageBox::critical(this, QString::null, tr("Missing required fields"));
         return false;
     }
 
@@ -165,15 +223,14 @@ bool WslInstallDialog::validate()
     return true;
 }
 
-static QString wslError(const QString &prefix, HRESULT rc)
+static std::wstring wslError(HRESULT rc)
 {
     wchar_t buffer[512];
     swprintf(buffer, std::size(buffer), L"0x%08x", rc);
     FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, rc,
                    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
                    buffer, static_cast<DWORD>(std::size(buffer)), nullptr);
-
-    return QStringLiteral("%1: %2").arg(prefix).arg(QString::fromWCharArray(buffer));
+    return buffer;
 }
 
 void WslInstallDialog::performInstall()
@@ -353,62 +410,61 @@ void WslInstallDialog::setupDistribution()
         dist.setVersion(rootfs.version());
         extractTarball(rootfs, tarball);
 
-        // Delete /etc/resolv.conf to allow WSL to generate a version based on
-        // Windows networking information.
         DWORD exitCode;
-        auto rc = WslApi::LaunchInteractive(distName.c_str(),
-                            L"/bin/rm /etc/resolv.conf", TRUE, &exitCode);
-        if (FAILED(rc)) {
-            QMessageBox::critical(this, QString::null,
-                    wslError(tr("Failed to configure distribution"), rc));
-            return;
+        std::wstring commandLine;
+        if (m_runCmdGroupBox->isChecked()) {
+            QStringList runCommands = m_runCommands->toPlainText()
+                            .split(QRegularExpression("[\\r\\n]"), QString::SkipEmptyParts);
+            for (QString cmd : runCommands) {
+                commandLine = cmd.toStdWString();
+                wprintf(L"Running %s\n", commandLine.c_str());
+                auto rc = WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
+                                                    TRUE, &exitCode);
+                if (FAILED(rc)) {
+                    std::wstring errMessage = wslError(rc);
+                    wprintf(L"Running custom command failed: %s\n", errMessage.c_str());
+                } else if (exitCode != 0) {
+                    wprintf(L"Command returned exit status %u\n", exitCode);
+                }
+            }
         }
 
         // Create a default user
-        QString username;
-        std::wstring commandLine;
-        for ( ;; ) {
-            bool ok;
-            username = QInputDialog::getText(this, tr("Create Default User"),
-                            tr("Enter a Linux username.  This does not need to match your Windows username."),
-                            QLineEdit::Normal, QString::null, &ok);
-            if (!ok || username.isEmpty()) {
-                // User cancelled the dialog -- don't create a user
-                username = QString::null;
-                break;
-            }
-
+        if (m_userGroupBox->isChecked()) {
+            QString username = m_defaultUsername->text();
+            wprintf(L"Creating user %s with adduser\n", username.toStdWString().c_str());
             username.replace(QLatin1Char('\''), QLatin1String("'\\''"));
             commandLine = QStringLiteral("/usr/sbin/adduser -g '' '%1'")
                                 .arg(username).toStdWString();
-            rc = WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
-                                           TRUE, &exitCode);
+            auto rc = WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
+                                                TRUE, &exitCode);
             if (FAILED(rc)) {
-                QMessageBox::critical(this, QString::null,
-                        wslError(tr("Failed to create default user"), rc));
-                return;
+                std::wstring errMessage = wslError(rc);
+                wprintf(L"Failed to create default user: %s\n", errMessage.c_str());
             } else if (exitCode != 0) {
-                QMessageBox::critical(this, QString::null,
-                        tr("Failed to create default user with adduser"));
-                return;
-            } else {
-                // Successfully created the user
-                break;
+                wprintf(L"adduser returned exit status %u\n", exitCode);
             }
-        }
-        if (!username.isEmpty()) {
-            const QStringList tryGroups{"adm", "wheel", "sudo", "cdrom", "plugdev"};
-            for (const QString &group : tryGroups) {
-                // These are allowed to fail since not all groups are available
-                // on all distributions.
-                commandLine = QStringLiteral("/usr/sbin/usermod -aG %1 '%2'")
+
+            const QStringList tryGroups = m_userGroups->text().split(QLatin1Char(','));
+            for (QString group : tryGroups) {
+                group.replace(QLatin1Char('\''), QLatin1String("'\\''"))
+                     .replace(QLatin1Char(' '), QString::null);
+                commandLine = QStringLiteral("/usr/sbin/usermod -aG '%1' '%2'")
                                     .arg(group).arg(username).toStdWString();
-                WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
-                                          TRUE, &exitCode);
+                auto rc = WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
+                                                    TRUE, &exitCode);
+                if (FAILED(rc)) {
+                    std::wstring errMessage = wslError(rc);
+                    wprintf(L"Failed to add user to group %s: %s\n",
+                            group.toStdWString().c_str(), errMessage.c_str());
+                } else if (exitCode != 0) {
+                    wprintf(L"usermod returned exit status %u\n", exitCode);
+                }
             }
 
             uint32_t uid = WslUtil::getUid(distName, username);
-            dist.setDefaultUID(uid);
+            if (uid != INVALID_UID)
+                dist.setDefaultUID(uid);
         }
     } catch (const std::runtime_error &err) {
         QMessageBox::critical(this, QString::null,

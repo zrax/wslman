@@ -38,6 +38,9 @@ WslConsoleContext *WslConsoleContext::createConsole(const std::wstring &name,
     SendMessageW(hConsole, WM_SETICON, ICON_BIG, (LPARAM)context->distIconBig);
     SendMessageW(hConsole, WM_SETICON, ICON_SMALL, (LPARAM)context->distIconSmall);
 
+    freopen_s(&context->stdoutStream, "CONOUT$", "w", stdout);
+    freopen_s(&context->stderrStream, "CONOUT$", "w", stderr);
+
     return context;
 }
 
@@ -52,6 +55,9 @@ static unsigned _startShell(void *pvContext)
         context->errorMessage = QObject::tr("Failed to start %1: %2")
                                 .arg(context->distName).arg(err.what());
     }
+
+    fclose(context->stdoutStream);
+    fclose(context->stderrStream);
 
     context->shellTerminated = true;
     context->unref();
