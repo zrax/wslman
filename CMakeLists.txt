@@ -20,9 +20,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt5Core REQUIRED)
-find_package(Qt5Widgets REQUIRED)
-find_package(Qt5WinExtras REQUIRED)
+find_package(Qt5 REQUIRED COMPONENTS Core Widgets WinExtras)
 set(CMAKE_AUTORCC ON)
 
 find_package(LibArchive REQUIRED)

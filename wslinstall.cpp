@@ -185,7 +185,7 @@ bool WslInstallDialog::validate()
     if (m_distName->text().isEmpty() || m_installPath->text().isEmpty()
             || m_tarball->text().isEmpty()
             || (m_userGroupBox->isChecked() && m_defaultUsername->text().isEmpty())) {
-        QMessageBox::critical(this, QString::null, tr("Missing required fields"));
+        QMessageBox::critical(this, QString(), tr("Missing required fields"));
         return false;
     }
 
@@ -195,19 +195,19 @@ bool WslInstallDialog::validate()
         WslRegistry registry;
         dist = registry.findDistByName(distName);
     } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
+        QMessageBox::critical(this, QString(),
                 tr("Failed to query WSL distributions: %1").arg(err.what()));
         return false;
     }
     if (dist.isValid()) {
-        QMessageBox::critical(this, QString::null,
+        QMessageBox::critical(this, QString(),
                 tr("A distribution named \"%1\" already exists").arg(distName));
         return false;
     }
 
     QString installPath = m_installPath->text();
     if (QFileInfo(installPath).exists() && !isDirectoryEmpty(installPath)) {
-        QMessageBox::critical(this, QString::null,
+        QMessageBox::critical(this, QString(),
                 tr("The install path \"%1\" already exists and is not empty").arg(installPath));
         return false;
     }
@@ -215,7 +215,7 @@ bool WslInstallDialog::validate()
     QString tarball = m_tarball->text();
     QFileInfo tarballInfo(tarball);
     if (!tarballInfo.exists() || !tarballInfo.isFile() || !tarballInfo.isReadable()) {
-        QMessageBox::critical(this, QString::null,
+        QMessageBox::critical(this, QString(),
                 tr("The specified tarball \"%1\" cannot be read").arg(tarball));
         return false;
     }
@@ -392,7 +392,7 @@ void WslInstallDialog::setupDistribution()
     wprintf(L"Installing %s...\n", distName.c_str());
     try {
         if (!QDir::current().mkpath(m_installPath->text())) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                     tr("Failed to create distribution directory"));
             return;
         }
@@ -401,7 +401,7 @@ void WslInstallDialog::setupDistribution()
         std::wstring distDir = m_installPath->text().toStdWString();
         WslDistribution dist = registry.registerDistribution(distName.c_str(), distDir.c_str());
         if (!dist.isValid()) {
-            QMessageBox::critical(this, QString::null, tr("Failed to register distribution"));
+            QMessageBox::critical(this, QString(), tr("Failed to register distribution"));
             return;
         }
 
@@ -448,7 +448,7 @@ void WslInstallDialog::setupDistribution()
             const QStringList tryGroups = m_userGroups->text().split(QLatin1Char(','));
             for (QString group : tryGroups) {
                 group.replace(QLatin1Char('\''), QLatin1String("'\\''"))
-                     .replace(QLatin1Char(' '), QString::null);
+                     .replace(QLatin1Char(' '), QString());
                 commandLine = QStringLiteral("/usr/sbin/usermod -aG '%1' '%2'")
                                     .arg(group).arg(username).toStdWString();
                 auto rc = WslApi::LaunchInteractive(distName.c_str(), commandLine.c_str(),
@@ -467,7 +467,7 @@ void WslInstallDialog::setupDistribution()
                 dist.setDefaultUID(uid);
         }
     } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
+        QMessageBox::critical(this, QString(),
                 tr("Failed to register distribution: %1").arg(err.what()));
         return;
     }

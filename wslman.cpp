@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
     app.setApplicationName(QObject::tr("WSL Distribution Manager"));
 
     if (!WslUtil::checkWindowsVersion(WslUtil::Windows1803)) {
-        QMessageBox::critical(nullptr, QString::null,
+        QMessageBox::critical(nullptr, QString(),
                 QObject::tr("This application requires Windows version 1803 or later"));
         return 1;
     }

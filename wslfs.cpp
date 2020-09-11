@@ -24,6 +24,8 @@
 #undef WIN32_NO_STATUS
 #include <ntstatus.h>
 
+#include <memory>
+
 // NOTE: This is based on the work of LxRunOffline's WSL filesystem support
 
 extern "C" {

@@ -252,14 +252,14 @@ WslUi::~WslUi()
 
 void WslUi::distSelected(QListWidgetItem *current, QListWidgetItem *)
 {
-    m_name->setText(QString::null);
-    m_fsType->setText(QString::null);
-    m_defaultUser->setText(QString::null);
-    m_location->setText(QString::null);
+    m_name->setText(QString());
+    m_fsType->setText(QString());
+    m_defaultUser->setText(QString());
+    m_location->setText(QString());
     m_enableInterop->setChecked(false);
     m_appendNTPath->setChecked(false);
     m_enableDriveMounting->setChecked(false);
-    m_kernelCmdLine->setText(QString::null);
+    m_kernelCmdLine->setText(QString());
     m_defaultEnvironment->clear();
 
     m_openShell->setEnabled(false);
@@ -302,7 +302,7 @@ void WslUi::chooseUser(bool)
         try {
             dist.setDefaultUID(uid);
         } catch (const std::runtime_error &err) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                     tr("Failed to set property: %1").arg(err.what()));
         }
         updateDistProperties(dist);
@@ -325,7 +325,7 @@ void WslUi::commitDistFlags(bool)
         try {
             dist.setFlags(static_cast<WslApi::DistributionFlags>(flags));
         } catch (const std::runtime_error &err) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                     tr("Failed to set property: %1").arg(err.what()));
         }
         updateDistProperties(dist);
@@ -340,7 +340,7 @@ void WslUi::commitKernelCmdLine()
         try {
             dist.setKernelCmdLine(cmdline);
         } catch (const std::runtime_error &err) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                     tr("Failed to set property: %1").arg(err.what()));
         }
         updateDistProperties(dist);
@@ -378,7 +378,7 @@ void WslUi::environChanged(QTreeWidgetItem *item, int column)
             if (!key.isEmpty())
                 dist.addEnvironment(key.toStdWString(), value.toStdWString());
         } catch (const std::runtime_error &err) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                     tr("Failed to set environment variable: %1").arg(err.what()));
         }
         updateDistProperties(dist);
@@ -394,7 +394,7 @@ void WslUi::deleteSelectedEnviron(bool)
         try {
             dist.delEnvironment(envKey.toStdWString());
         } catch (const std::runtime_error &err) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                     tr("Failed to delete environment variable: %1").arg(err.what()));
         }
         updateDistProperties(dist);
@@ -431,7 +431,7 @@ void WslUi::loadDistributions()
             m_registry = new WslRegistry;
         distributions = m_registry->getDistributions();
     } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
+        QMessageBox::critical(this, QString(),
                 tr("Failed to get distribution list: %1").arg(err.what()));
     }
 
@@ -448,7 +448,7 @@ void WslUi::loadDistributions()
     try {
         defaultDist = m_registry->defaultDistribution();
     } catch (const std::runtime_error &err) {
-        QMessageBox::critical(this, QString::null,
+        QMessageBox::critical(this, QString(),
                 tr("Failed to query default distribution: %1").arg(err.what()));
     }
 
@@ -517,7 +517,7 @@ void WslUi::updateDistProperties(const WslDistribution &dist)
         auto env = QString::fromStdWString(envLine);
         QStringList parts = env.split(QLatin1Char('='));
         if (parts.count() != 2) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                             tr("Invalid environment line: %1").arg(env));
             continue;
         }
@@ -538,7 +538,7 @@ WslDistribution WslUi::getDistribution(QListWidgetItem *item)
         try {
             return WslRegistry::findDistByUuid(uuid.toStdWString());
         } catch (const std::runtime_error &err) {
-            QMessageBox::critical(this, QString::null,
+            QMessageBox::critical(this, QString(),
                     tr("Failed to query distribution %1: %2")
                     .arg(distName).arg(err.what()));
         }

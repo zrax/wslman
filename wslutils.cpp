@@ -84,7 +84,7 @@ void WslConsoleContext::startConsoleThread(QWidget *parent)
         Sleep(100);
     }
     if (!errorMessage.isEmpty())
-        QMessageBox::critical(parent, QString::null, errorMessage);
+        QMessageBox::critical(parent, QString(), errorMessage);
     unref();
 }
 
@@ -166,7 +166,7 @@ QString WslUtil::getUsername(const std::wstring &distName, uint32_t uid)
         if (std::get<1>(user) == uid)
             return QString::fromStdString(std::get<0>(user));
     }
-    return QString::null;
+    return QString();
 }
 
 uint32_t WslUtil::getUid(const std::wstring &distName, const QString &username)

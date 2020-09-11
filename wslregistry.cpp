@@ -19,6 +19,8 @@
 #include "wslutils.h"
 #include <objbase.h>
 
+#include <memory>
+
 #define LXSS_ROOT_PATH L"Software\\Microsoft\\Windows\\CurrentVersion\\Lxss"
 
 static std::wstring winregGetWstring(const std::wstring &path, LPCWSTR name)
