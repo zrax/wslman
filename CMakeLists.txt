@@ -20,7 +20,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets WinExtras)
+find_package(Qt6 COMPONENTS Core Widgets)
+if(NOT Qt6_FOUND)
+    find_package(Qt5 REQUIRED COMPONENTS Core Widgets WinExtras)
+endif()
 set(CMAKE_AUTORCC ON)
 
 find_package(LibArchive REQUIRED)
@@ -64,23 +67,38 @@ if(LibArchive_STATIC)
     target_compile_definitions(wslman PRIVATE LIBARCHIVE_STATIC)
 endif()
 
+if(Qt6_FOUND)
+    target_link_libraries(wslman PRIVATE
+        Qt6::Core
+        Qt6::Widgets
+    )
+else()
+    target_link_libraries(wslman PRIVATE
+        Qt5::Core
+        Qt5::Widgets
+        Qt5::WinExtras
+    )
+endif()
 target_link_libraries(wslman PRIVATE
-    Qt5::Core
-    Qt5::Widgets
-    Qt5::WinExtras
     ${LibArchive_LIBRARIES}
     Ntdll.lib
 )
 
-# Find windeployqt, which should be in the same path as Qt5::qmake
-get_target_property(_qmake_executable Qt5::qmake IMPORTED_LOCATION)
-get_filename_component(_qt5_bin_dir "${_qmake_executable}" DIRECTORY)
-find_program(Qt5_WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${_qt5_bin_dir}")
-if(NOT Qt5_WINDEPLOYQT_EXECUTABLE)
+# Find windeployqt, which should be in the same path as QtX::qmake
+if(Qt6_FOUND)
+    get_target_property(_qmake_executable Qt6::qmake IMPORTED_LOCATION)
+    set(_deploy_args)
+else()
+    get_target_property(_qmake_executable Qt5::qmake IMPORTED_LOCATION)
+    set(_deploy_args --no-angle --no-opengl-sw)
+endif()
+get_filename_component(_qt_bin_dir "${_qmake_executable}" DIRECTORY)
+find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${_qt_bin_dir}")
+if(NOT WINDEPLOYQT_EXECUTABLE)
     message(FATAL_ERROR "windeployqt.exe is required for installation")
 endif()
 
 install(TARGETS wslman RUNTIME DESTINATION .)
-install(CODE "execute_process(COMMAND \"${Qt5_WINDEPLOYQT_EXECUTABLE}\"\
-    --no-angle --no-opengl-sw \"${CMAKE_INSTALL_PREFIX}/wslman.exe\"\
+install(CODE "execute_process(COMMAND \"${WINDEPLOYQT_EXECUTABLE}\"\
+    ${_deploy_args} \"${CMAKE_INSTALL_PREFIX}/wslman.exe\"\
 )")

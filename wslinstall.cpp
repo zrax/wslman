@@ -38,6 +38,12 @@
 #include <archive.h>
 #include <archive_entry.h>
 
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+#   define QT_SKIP_EMPTY_PARTS Qt::SkipEmptyParts
+#else
+#   define QT_SKIP_EMPTY_PARTS QString::SkipEmptyParts
+#endif
+
 class SmallerPlainTextEdit : public QPlainTextEdit
 {
 public:
@@ -414,7 +420,7 @@ void WslInstallDialog::setupDistribution()
         std::wstring commandLine;
         if (m_runCmdGroupBox->isChecked()) {
             QStringList runCommands = m_runCommands->toPlainText()
-                            .split(QRegularExpression("[\\r\\n]"), QString::SkipEmptyParts);
+                            .split(QRegularExpression("[\\r\\n]"), QT_SKIP_EMPTY_PARTS);
             for (QString cmd : runCommands) {
                 commandLine = cmd.toStdWString();
                 wprintf(L"Running %s\n", commandLine.c_str());

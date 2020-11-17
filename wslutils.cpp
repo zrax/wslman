@@ -20,7 +20,9 @@
 #include "wslfs.h"
 #include <QMessageBox>
 #include <QIcon>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QtWin>
+#endif
 #include <process.h>
 
 WslConsoleContext *WslConsoleContext::createConsole(const std::wstring &name,
@@ -32,8 +34,13 @@ WslConsoleContext *WslConsoleContext::createConsole(const std::wstring &name,
     context->distName = name;
 
     const QIcon distIcon = icon;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    context->distIconBig = distIcon.pixmap(32, 32).toImage().toHICON();
+    context->distIconSmall = distIcon.pixmap(16, 16).toImage().toHICON();
+#else
     context->distIconBig = QtWin::toHICON(distIcon.pixmap(32, 32));
     context->distIconSmall = QtWin::toHICON(distIcon.pixmap(16, 16));
+#endif
     HWND hConsole = GetConsoleWindow();
     SendMessageW(hConsole, WM_SETICON, ICON_BIG, (LPARAM)context->distIconBig);
     SendMessageW(hConsole, WM_SETICON, ICON_SMALL, (LPARAM)context->distIconSmall);
